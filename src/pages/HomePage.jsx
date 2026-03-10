@@ -70,7 +70,7 @@ export default function HomePage() {
   }, []);
 
   const topMembers = useMemo(() => countByMember(items), [items]);
-  const latestCards = useMemo(() => items.slice(0, 10), [items]);
+  const latestCards = useMemo(() => items.slice(0, 8), [items]);
 
   return (
     <main className="page-content with-nav-space home-page">

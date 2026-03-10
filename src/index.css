@@ -402,11 +402,15 @@ p {
 .photo-title {
   font-size: 0.72rem;
   font-weight: 700;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .photo-meta {
   font-size: 0.64rem;
   color: var(--muted);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .form-grid {
@@ -781,7 +785,7 @@ textarea:focus {
   }
 
   .photo-title {
-    font-size: 0.64rem;
+    font-size: clamp(0.52rem, 2.2vw, 0.64rem);
     line-height: 1.2;
   }
 
