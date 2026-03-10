@@ -87,7 +87,7 @@ export default function CollectionPage() {
     const filtered = items.filter((item) => {
       const matchesSearch =
         !term ||
-        `${item.title || ""} ${item.group || ""} ${item.member || ""} ${item.album || ""} ${item.rarity || ""} ${item.version || ""}`
+        `${item.title || ""} ${item.group || ""} ${item.member || ""} ${item.album || ""} ${item.rarity || ""} ${item.version || ""} ${item.sourceName || ""} ${item.pobStore || ""} ${item.otherType || ""}`
           .toLowerCase()
           .includes(term);
       const matchesMember = !memberFilter || norm(item.member) === norm(memberFilter);

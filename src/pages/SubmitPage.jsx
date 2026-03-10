@@ -6,6 +6,7 @@ import { auth, db, storage } from "../../firebase-config";
 import { buildResizedPath, DEFAULT_CARD_THUMB_SIZE } from "../lib/imagePaths";
 import { cropImageFileToBlob } from "../lib/imageCrop";
 import { computeAverageHashFromBlob } from "../lib/imageHash";
+import { DEFAULT_POB_STORES, formatPobStoreName } from "../lib/pobStore";
 import Nav from "../components/Nav";
 
 function normalize(str) {
@@ -19,6 +20,7 @@ export default function SubmitPage() {
   const [collections, setCollections] = useState([]);
   const [existingItems, setExistingItems] = useState([]);
   const [groupCatalog, setGroupCatalog] = useState({});
+  const [pobStoreCatalog, setPobStoreCatalog] = useState({});
 
   const [selectedCollectionId, setSelectedCollectionId] = useState(
     params.get("collectionId") || ""
@@ -31,6 +33,7 @@ export default function SubmitPage() {
   const [newAlbumName, setNewAlbumName] = useState("");
   const [sourceName, setSourceName] = useState("");
   const [pobStore, setPobStore] = useState("");
+  const [otherType, setOtherType] = useState("");
   const [version, setVersion] = useState("");
 
   const [photoFile, setPhotoFile] = useState(null);
@@ -56,10 +59,11 @@ export default function SubmitPage() {
       const uid = auth.currentUser?.uid;
       if (!uid) return;
 
-      const [collectionSnap, globalItemsSnap, catalogSnap] = await Promise.all([
+      const [collectionSnap, globalItemsSnap, catalogSnap, pobStoreSnap] = await Promise.all([
         get(dbRef(db, `users/${uid}/collections`)),
         get(dbRef(db, "items")),
         get(dbRef(db, "meta/groupCatalog")),
+        get(dbRef(db, "meta/pobStoreCatalog")),
       ]);
 
       if (!alive) return;
@@ -78,6 +82,8 @@ export default function SubmitPage() {
 
       const catalogVal = catalogSnap.exists() ? catalogSnap.val() : {};
       setGroupCatalog(catalogVal || {});
+      const pobStoreVal = pobStoreSnap.exists() ? pobStoreSnap.val() : {};
+      setPobStoreCatalog(pobStoreVal || {});
     }
 
     loadInitialData().catch((err) => setError(err?.message || "Could not load data."));
@@ -101,6 +107,7 @@ export default function SubmitPage() {
 
   useEffect(() => {
     if (rarity === "pob") setVersion("");
+    if (rarity !== "others") setOtherType("");
   }, [rarity]);
 
   const albumOptions = useMemo(() => {
@@ -189,6 +196,31 @@ export default function SubmitPage() {
       .slice(0, 8);
   }, [memberOptions, normalizedGroup, normalizedMember]);
 
+  const pobStoreOptions = useMemo(() => {
+    const fromCatalog = Object.values(pobStoreCatalog || {})
+      .map((value) => formatPobStoreName(value))
+      .filter(Boolean);
+    const fromItems = existingItems
+      .map((item) => formatPobStoreName(item.pobStore))
+      .filter(Boolean);
+    return Array.from(new Set([...DEFAULT_POB_STORES, ...fromCatalog, ...fromItems])).sort((a, b) =>
+      a.localeCompare(b)
+    );
+  }, [pobStoreCatalog, existingItems]);
+
+  const normalizedPobStore = normalize(pobStore);
+  const hasPobStoreInCatalog = useMemo(() => {
+    if (!normalizedPobStore) return false;
+    return pobStoreOptions.some((name) => normalize(name) === normalizedPobStore);
+  }, [pobStoreOptions, normalizedPobStore]);
+
+  const pobStoreSuggestions = useMemo(() => {
+    if (!normalizedPobStore) return pobStoreOptions.slice(0, 8);
+    return pobStoreOptions
+      .filter((name) => normalize(name).includes(normalizedPobStore))
+      .slice(0, 8);
+  }, [pobStoreOptions, normalizedPobStore]);
+
   const resolvedAlbum = useMemo(() => {
     if (!isAlbumBased) return "";
     if (albumChoice === "__new") return newAlbumName.trim();
@@ -204,9 +236,8 @@ export default function SubmitPage() {
       descriptor = resolvedAlbum || "Album photocard";
     } else if (rarity === "pob") {
       const base = resolvedAlbum || "Album";
-      descriptor = `${base} POB${pobStore.trim() ? ` (${pobStore.trim()})` : ""}`;
-    } else if (rarity === "event") {
-      descriptor = sourceName.trim() ? `Event ${sourceName.trim()}` : "Event photocard";
+      const store = formatPobStoreName(pobStore);
+      descriptor = `${base} POB${store ? ` (${store})` : ""}`;
     } else if (rarity === "broadcast") {
       descriptor = sourceName.trim()
         ? `Broadcast ${sourceName.trim()}`
@@ -215,10 +246,22 @@ export default function SubmitPage() {
       descriptor = sourceName.trim()
         ? `Lucky Draw ${sourceName.trim()}`
         : "Lucky Draw photocard";
+    } else if (rarity === "pop-up") {
+      descriptor = sourceName.trim() ? `Pop-Up ${sourceName.trim()}` : "Pop-Up photocard";
+    } else if (rarity === "seasons-greetings") {
+      descriptor = sourceName.trim()
+        ? `Seasons Greetings ${sourceName.trim()}`
+        : "Seasons Greetings photocard";
+    } else if (rarity === "fanclub") {
+      descriptor = sourceName.trim() ? `Fanclub ${sourceName.trim()}` : "Fanclub photocard";
+    } else if (rarity === "others") {
+      descriptor = otherType.trim()
+        ? `${otherType.trim()}${sourceName.trim() ? ` ${sourceName.trim()}` : ""}`
+        : "Other photocard";
     }
 
     return `${person} ${descriptor}`.trim();
-  }, [member, rarity, resolvedAlbum, pobStore, sourceName]);
+  }, [member, rarity, resolvedAlbum, pobStore, sourceName, otherType]);
 
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
@@ -319,6 +362,9 @@ export default function SubmitPage() {
     if (rarity === "pob" && !pobStore.trim()) {
       return setError("Please add the POB store.");
     }
+    if (rarity === "others" && !otherType.trim()) {
+      return setError("Please add what type this card is.");
+    }
     if (!computedTitle) {
       return setError("Could not build title. Check member and rarity fields.");
     }
@@ -354,6 +400,7 @@ export default function SubmitPage() {
       const imageUrl = await getDownloadURL(imageRef);
       const imgHash = await computeAverageHashFromBlob(uploadBlob, 16);
 
+      const formattedPobStore = formatPobStoreName(pobStore);
       const now = serverTimestamp();
       const base = {
         id: itemId,
@@ -363,7 +410,8 @@ export default function SubmitPage() {
         album: resolvedAlbum,
         rarity,
         sourceName: sourceName.trim(),
-        pobStore: pobStore.trim(),
+        pobStore: formattedPobStore,
+        otherType: otherType.trim(),
         version: version.trim(),
         imageUrl,
         imagePath,
@@ -458,6 +506,27 @@ export default function SubmitPage() {
     }
   }
 
+  async function handleAddPobStoreToList() {
+    setError("");
+    const name = formatPobStoreName(pobStore);
+    const key = normalize(name);
+    if (!name) return;
+    if (hasPobStoreInCatalog) return;
+
+    try {
+      await update(dbRef(db), {
+        [`meta/pobStoreCatalog/${key}`]: name,
+      });
+      setPobStoreCatalog((prev) => ({
+        ...prev,
+        [key]: name,
+      }));
+      setPobStore(name);
+    } catch (err) {
+      setError(err?.message || "Could not add POB store.");
+    }
+  }
+
   return (
     <main className="page-content with-nav-space submit-page">
       <section className="section-block">
@@ -474,9 +543,12 @@ export default function SubmitPage() {
           <select value={rarity} onChange={(e) => setRarity(e.target.value)}>
             <option value="album">Album</option>
             <option value="pob">POB</option>
-            <option value="event">Event</option>
             <option value="broadcast">Broadcast</option>
             <option value="lucky-draw">Lucky Draw</option>
+            <option value="pop-up">Pop-Up</option>
+            <option value="seasons-greetings">Seasons Greetings</option>
+            <option value="fanclub">Fanclub</option>
+            <option value="others">Others</option>
           </select>
         </label>
 
@@ -597,24 +669,81 @@ export default function SubmitPage() {
               placeholder="e.g. Soundwave"
               required
             />
+            {pobStoreSuggestions.length > 0 ? (
+              <div className="option-list">
+                {pobStoreSuggestions.map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    className="option-chip"
+                    onClick={() => setPobStore(name)}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {!hasPobStoreInCatalog && pobStore.trim() ? (
+              <button type="button" className="btn btn-ghost small" onClick={handleAddPobStoreToList}>
+                Add POB store to list
+              </button>
+            ) : null}
           </label>
         )}
 
-        {(rarity === "event" || rarity === "broadcast" || rarity === "lucky-draw") && (
+        {(rarity === "broadcast" ||
+          rarity === "lucky-draw" ||
+          rarity === "pop-up" ||
+          rarity === "seasons-greetings" ||
+          rarity === "fanclub") && (
           <label>
-            {rarity === "broadcast" ? "Broadcast name" : "Event / source name"}
+            {rarity === "broadcast"
+              ? "Broadcast name"
+              : rarity === "lucky-draw"
+                ? "Lucky Draw source"
+                : rarity === "pop-up"
+                  ? "Pop-Up source"
+                  : rarity === "seasons-greetings"
+                    ? "Seasons Greetings source"
+                    : "Fanclub source"}
             <input
               value={sourceName}
               onChange={(e) => setSourceName(e.target.value)}
               placeholder={
                 rarity === "broadcast"
                   ? "e.g. Music Bank"
-                  : rarity === "event"
-                    ? "e.g. Fanmeeting Seoul"
-                    : "e.g. Soundwave round 2"
+                  : rarity === "lucky-draw"
+                    ? "e.g. Soundwave round 2"
+                    : rarity === "pop-up"
+                      ? "e.g. Seoul pop-up store"
+                      : rarity === "seasons-greetings"
+                        ? "e.g. 2026 package"
+                        : "e.g. 4th gen fanclub"
               }
             />
           </label>
+        )}
+
+        {rarity === "others" && (
+          <>
+            <label>
+              Other type
+              <input
+                value={otherType}
+                onChange={(e) => setOtherType(e.target.value)}
+                placeholder="e.g. Anniversary merch"
+                required
+              />
+            </label>
+            <label>
+              Source (optional)
+              <input
+                value={sourceName}
+                onChange={(e) => setSourceName(e.target.value)}
+                placeholder="e.g. Offline event booth"
+              />
+            </label>
+          </>
         )}
 
         {rarity !== "pob" && (

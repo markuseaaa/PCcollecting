@@ -3,6 +3,11 @@ import { Link } from "react-router";
 import { ref, get, remove } from "firebase/database";
 import { auth, db } from "../../firebase-config";
 import { formatRarityLabel } from "../lib/rarity";
+import {
+  computeAverageHashFromBlob,
+  computeCenteredAverageHashFromBlob,
+  hammingDistance,
+} from "../lib/imageHash";
 import StorageImage from "../components/StorageImage";
 import Nav from "../components/Nav";
 
@@ -21,6 +26,12 @@ export default function MyPhotocardsPage() {
   const [removingId, setRemovingId] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [checkOpen, setCheckOpen] = useState(false);
+  const [checkFile, setCheckFile] = useState(null);
+  const [checkPreviewUrl, setCheckPreviewUrl] = useState("");
+  const [checkLoading, setCheckLoading] = useState(false);
+  const [checkError, setCheckError] = useState("");
+  const [checkResult, setCheckResult] = useState(null);
 
   useEffect(() => {
     let alive = true;
@@ -68,6 +79,16 @@ export default function MyPhotocardsPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!checkFile) {
+      setCheckPreviewUrl("");
+      return;
+    }
+    const url = URL.createObjectURL(checkFile);
+    setCheckPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [checkFile]);
+
   const memberOptions = useMemo(() => {
     const vals = new Set(items.map((item) => String(item.member || "").trim()).filter(Boolean));
     return Array.from(vals).sort((a, b) => a.localeCompare(b));
@@ -88,7 +109,7 @@ export default function MyPhotocardsPage() {
     const filtered = items.filter((item) => {
       const matchesSearch =
         !term ||
-        `${item.title || ""} ${item.group || ""} ${item.member || ""} ${item.album || ""} ${item.rarity || ""} ${item.version || ""}`
+        `${item.title || ""} ${item.group || ""} ${item.member || ""} ${item.album || ""} ${item.rarity || ""} ${item.version || ""} ${item.sourceName || ""} ${item.pobStore || ""} ${item.otherType || ""}`
           .toLowerCase()
           .includes(term);
       const matchesMember = !memberFilter || norm(item.member) === norm(memberFilter);
@@ -140,6 +161,56 @@ export default function MyPhotocardsPage() {
     }
   }
 
+  function similarityFromDistance(distance, maxBits = 256) {
+    if (!Number.isFinite(distance)) return 0;
+    return Math.max(0, Math.round((1 - distance / maxBits) * 100));
+  }
+
+  async function handleCheck() {
+    setCheckError("");
+    setCheckResult(null);
+    if (!checkFile) return setCheckError("Upload or take a photo first.");
+
+    const candidates = items.filter(
+      (item) => typeof item.imgHash === "string" && item.imgHash.length > 0
+    );
+    if (candidates.length === 0) {
+      return setCheckError("No hash data found on your cards yet.");
+    }
+
+    setCheckLoading(true);
+    try {
+      const [hashA, hashB] = await Promise.all([
+        computeAverageHashFromBlob(checkFile, 16),
+        computeCenteredAverageHashFromBlob(checkFile, 16, 2 / 3),
+      ]);
+
+      const ranked = candidates
+        .map((item) => {
+          const distA = hammingDistance(hashA, item.imgHash);
+          const distB = hammingDistance(hashB, item.imgHash);
+          const dist = Math.min(distA, distB);
+          return {
+            ...item,
+            similarity: similarityFromDistance(dist),
+          };
+        })
+        .sort((a, b) => b.similarity - a.similarity);
+
+      const best = ranked[0];
+      if (!best || best.similarity < 30) {
+        setCheckError("No likely match found in your My Photocards.");
+        return;
+      }
+
+      setCheckResult(best);
+    } catch (err) {
+      setCheckError(err?.message || "Could not check this image.");
+    } finally {
+      setCheckLoading(false);
+    }
+  }
+
   const uid = auth.currentUser?.uid;
 
   return (
@@ -149,6 +220,9 @@ export default function MyPhotocardsPage() {
           <h1>My Photocards</h1>
           <p className="muted">All your cards across every collection.</p>
         </div>
+        <button type="button" className="btn btn-primary small" onClick={() => setCheckOpen(true)}>
+          Check
+        </button>
       </section>
 
       <section className="section-block">
@@ -266,6 +340,76 @@ export default function MyPhotocardsPage() {
       </div>
 
       <Nav />
+
+      {checkOpen ? (
+        <div className="modal-backdrop" onClick={() => setCheckOpen(false)}>
+          <section className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="section-heading-row">
+              <h2>Check photocard</h2>
+              <button type="button" className="btn btn-ghost small" onClick={() => setCheckOpen(false)}>
+                Close
+              </button>
+            </div>
+
+            <label>
+              Scan image
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={(e) => {
+                  setCheckFile(e.target.files?.[0] || null);
+                  setCheckResult(null);
+                  setCheckError("");
+                }}
+              />
+            </label>
+
+            {checkPreviewUrl ? (
+              <div className="preview-wrap">
+                <img src={checkPreviewUrl} alt="Check preview" className="preview-image" />
+              </div>
+            ) : null}
+
+            <div className="center-action">
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleCheck}
+                disabled={!checkFile || checkLoading}
+              >
+                {checkLoading ? "Checking..." : "Check if I already have it"}
+              </button>
+            </div>
+
+            {checkError ? <p className="error-text">{checkError}</p> : null}
+
+            {checkResult ? (
+              <article className="photo-card static">
+                <Link
+                  to={
+                    checkResult.collectionId
+                      ? `/users/${uid}/collections/${checkResult.collectionId}/items/${checkResult.id}`
+                      : `/items/${checkResult.id}`
+                  }
+                  className="photo-card-link"
+                  onClick={() => setCheckOpen(false)}
+                >
+                  <StorageImage
+                    src={checkResult.imageUrl || checkResult.coverImage || ""}
+                    thumbPath={checkResult.thumbPath}
+                    alt={checkResult.title || "Photocard"}
+                  />
+                  <div>
+                    <p className="photo-title">{checkResult.title || "Untitled"}</p>
+                    <p className="photo-meta">Match: {checkResult.similarity}%</p>
+                  </div>
+                </Link>
+              </article>
+            ) : null}
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }

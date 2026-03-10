@@ -131,6 +131,7 @@ export default function AddItem() {
         rarity: item.rarity || "",
         sourceName: item.sourceName || "",
         pobStore: item.pobStore || "",
+        otherType: item.otherType || "",
         imageUrl: item.imageUrl || item.coverImage || "",
         imagePath: item.imagePath || "",
         thumbPath: item.thumbPath || "",

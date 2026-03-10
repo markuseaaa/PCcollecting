@@ -179,6 +179,7 @@ export default function ScanPage() {
         version: item.version || "",
         sourceName: item.sourceName || "",
         pobStore: item.pobStore || "",
+        otherType: item.otherType || "",
         imageUrl: item.imageUrl || "",
         imagePath: item.imagePath || "",
         thumbPath: item.thumbPath || "",

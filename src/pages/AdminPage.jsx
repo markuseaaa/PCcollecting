@@ -16,6 +16,7 @@ const EDIT_FIELDS = [
   "version",
   "sourceName",
   "pobStore",
+  "otherType",
 ];
 
 function normalize(v) {
@@ -45,6 +46,7 @@ export default function AdminPage() {
     version: "",
     sourceName: "",
     pobStore: "",
+    otherType: "",
   });
 
   const [saving, setSaving] = useState(false);
@@ -107,7 +109,7 @@ export default function AdminPage() {
     if (!term) return items;
     return items.filter((item) =>
       normalize(
-        `${item.title || ""} ${item.group || ""} ${item.member || ""} ${item.album || ""} ${item.rarity || ""} ${item.version || ""}`
+        `${item.title || ""} ${item.group || ""} ${item.member || ""} ${item.album || ""} ${item.rarity || ""} ${item.version || ""} ${item.sourceName || ""} ${item.pobStore || ""} ${item.otherType || ""}`
       ).includes(term)
     );
   }, [items, query]);
@@ -129,6 +131,7 @@ export default function AdminPage() {
       version: item.version || "",
       sourceName: item.sourceName || "",
       pobStore: item.pobStore || "",
+      otherType: item.otherType || "",
     });
   }
 
@@ -176,6 +179,7 @@ export default function AdminPage() {
         version: form.version.trim(),
         sourceName: form.sourceName.trim(),
         pobStore: form.pobStore.trim(),
+        otherType: form.otherType.trim(),
       };
 
       const updates = {};
@@ -492,6 +496,13 @@ export default function AdminPage() {
                       <input
                         value={form.pobStore}
                         onChange={(e) => setForm((f) => ({ ...f, pobStore: e.target.value }))}
+                      />
+                    </label>
+                    <label>
+                      Other type
+                      <input
+                        value={form.otherType}
+                        onChange={(e) => setForm((f) => ({ ...f, otherType: e.target.value }))}
                       />
                     </label>
                   </div>

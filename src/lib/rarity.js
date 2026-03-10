@@ -4,8 +4,11 @@ export function formatRarityLabel(value) {
 
   if (raw === "pob") return "POB";
   if (raw === "lucky-draw") return "Lucky Draw";
+  if (raw === "pop-up" || raw === "event") return "Pop-Up";
+  if (raw === "seasons-greetings") return "Seasons Greetings";
+  if (raw === "fanclub") return "Fanclub";
+  if (raw === "others") return "Others";
   if (raw === "album") return "Album";
-  if (raw === "event") return "Event";
   if (raw === "broadcast") return "Broadcast";
 
   return raw
@@ -14,4 +17,3 @@ export function formatRarityLabel(value) {
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 }
-

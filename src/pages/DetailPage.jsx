@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router";
 import { ref, get } from "firebase/database";
 import { auth, db } from "../../firebase-config";
 import { formatRarityLabel } from "../lib/rarity";
+import { formatPobStoreName } from "../lib/pobStore";
 import Nav from "../components/Nav";
 
 export default function DetailPage() {
@@ -120,7 +121,13 @@ export default function DetailPage() {
           {item.pobStore ? (
             <li>
               <span>POB store</span>
-              <strong>{item.pobStore}</strong>
+              <strong>{formatPobStoreName(item.pobStore)}</strong>
+            </li>
+          ) : null}
+          {item.otherType ? (
+            <li>
+              <span>Other type</span>
+              <strong>{item.otherType}</strong>
             </li>
           ) : null}
           {item.sourceName ? (
