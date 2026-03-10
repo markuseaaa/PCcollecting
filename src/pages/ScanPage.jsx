@@ -193,7 +193,9 @@ export default function ScanPage() {
         [`users/${uid}/collectionItems/_placeholder`]: true,
       });
       setOwnedItemIds((prev) => (prev.includes(item.id) ? prev : [...prev, item.id]));
-      setMatches((prev) => prev.filter((match) => match.id !== item.id));
+      setScanFile(null);
+      setMatches([]);
+      setError("");
     } catch (err) {
       setError(err?.message || "Could not add photocard.");
     } finally {

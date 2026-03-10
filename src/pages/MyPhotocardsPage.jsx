@@ -31,7 +31,8 @@ export default function MyPhotocardsPage() {
   const [checkPreviewUrl, setCheckPreviewUrl] = useState("");
   const [checkLoading, setCheckLoading] = useState(false);
   const [checkError, setCheckError] = useState("");
-  const [checkResult, setCheckResult] = useState(null);
+  const [checkMatches, setCheckMatches] = useState([]);
+  const [checkMessage, setCheckMessage] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -168,7 +169,8 @@ export default function MyPhotocardsPage() {
 
   async function handleCheck() {
     setCheckError("");
-    setCheckResult(null);
+    setCheckMatches([]);
+    setCheckMessage("");
     if (!checkFile) return setCheckError("Upload or take a photo first.");
 
     const candidates = items.filter(
@@ -197,18 +199,29 @@ export default function MyPhotocardsPage() {
         })
         .sort((a, b) => b.similarity - a.similarity);
 
-      const best = ranked[0];
-      if (!best || best.similarity < 30) {
-        setCheckError("No likely match found in your My Photocards.");
+      const topMatches = ranked.slice(0, 3).filter((item) => item.similarity >= 20);
+      if (topMatches.length === 0) {
+        setCheckMessage("Vi fandt ikke et sikkert match i dine photocards.");
         return;
       }
 
-      setCheckResult(best);
+      setCheckMatches(topMatches);
+      setCheckMessage(`Vi har fundet ${topMatches.length} mulige matches i dine photocards.`);
     } catch (err) {
       setCheckError(err?.message || "Could not check this image.");
     } finally {
       setCheckLoading(false);
     }
+  }
+
+  function closeCheckModal() {
+    setCheckOpen(false);
+    setCheckFile(null);
+    setCheckPreviewUrl("");
+    setCheckLoading(false);
+    setCheckError("");
+    setCheckMatches([]);
+    setCheckMessage("");
   }
 
   const uid = auth.currentUser?.uid;
@@ -342,11 +355,11 @@ export default function MyPhotocardsPage() {
       <Nav />
 
       {checkOpen ? (
-        <div className="modal-backdrop" onClick={() => setCheckOpen(false)}>
+        <div className="modal-backdrop" onClick={closeCheckModal}>
           <section className="modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="section-heading-row">
               <h2>Check photocard</h2>
-              <button type="button" className="btn btn-ghost small" onClick={() => setCheckOpen(false)}>
+              <button type="button" className="btn btn-ghost small" onClick={closeCheckModal}>
                 Close
               </button>
             </div>
@@ -359,8 +372,9 @@ export default function MyPhotocardsPage() {
                 capture="environment"
                 onChange={(e) => {
                   setCheckFile(e.target.files?.[0] || null);
-                  setCheckResult(null);
+                  setCheckMatches([]);
                   setCheckError("");
+                  setCheckMessage("");
                 }}
               />
             </label>
@@ -383,29 +397,34 @@ export default function MyPhotocardsPage() {
             </div>
 
             {checkError ? <p className="error-text">{checkError}</p> : null}
+            {checkMessage ? <p className="muted">{checkMessage}</p> : null}
 
-            {checkResult ? (
-              <article className="photo-card static">
-                <Link
-                  to={
-                    checkResult.collectionId
-                      ? `/users/${uid}/collections/${checkResult.collectionId}/items/${checkResult.id}`
-                      : `/items/${checkResult.id}`
-                  }
-                  className="photo-card-link"
-                  onClick={() => setCheckOpen(false)}
-                >
-                  <StorageImage
-                    src={checkResult.imageUrl || checkResult.coverImage || ""}
-                    thumbPath={checkResult.thumbPath}
-                    alt={checkResult.title || "Photocard"}
-                  />
-                  <div>
-                    <p className="photo-title">{checkResult.title || "Untitled"}</p>
-                    <p className="photo-meta">Match: {checkResult.similarity}%</p>
-                  </div>
-                </Link>
-              </article>
+            {checkMatches.length > 0 ? (
+              <div className="check-results-grid">
+                {checkMatches.map((match) => (
+                  <article key={match.id} className="photo-card static check-result-card">
+                    <Link
+                      to={
+                        match.collectionId
+                          ? `/users/${uid}/collections/${match.collectionId}/items/${match.id}`
+                          : `/items/${match.id}`
+                      }
+                      className="photo-card-link"
+                      onClick={closeCheckModal}
+                    >
+                      <StorageImage
+                        src={match.imageUrl || match.coverImage || ""}
+                        thumbPath={match.thumbPath}
+                        alt={match.title || "Photocard"}
+                      />
+                      <div>
+                        <p className="photo-title">{match.title || "Untitled"}</p>
+                        <p className="photo-meta">Match: {match.similarity}%</p>
+                      </div>
+                    </Link>
+                  </article>
+                ))}
+              </div>
             ) : null}
           </section>
         </div>

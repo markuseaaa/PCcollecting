@@ -9,6 +9,7 @@ function countByMember(items) {
   const map = new Map();
   for (const item of items) {
     const key = (item.member || "Unknown").trim() || "Unknown";
+    if (key.toLowerCase() === "unit") continue;
     map.set(key, (map.get(key) || 0) + 1);
   }
   return [...map.entries()]
@@ -69,7 +70,7 @@ export default function HomePage() {
   }, []);
 
   const topMembers = useMemo(() => countByMember(items), [items]);
-  const latestCards = useMemo(() => items.slice(0, 8), [items]);
+  const latestCards = useMemo(() => items.slice(0, 10), [items]);
 
   return (
     <main className="page-content with-nav-space home-page">
@@ -107,7 +108,7 @@ export default function HomePage() {
       </section>
 
       <section className="section-block">
-        <h2>Most collected members</h2>
+        <h2>Most collected idols</h2>
         {topMembers.length === 0 ? (
           <p className="muted">No member data yet.</p>
         ) : (
