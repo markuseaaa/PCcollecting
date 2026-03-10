@@ -13,15 +13,29 @@ function normalize(str) {
   return String(str || "").trim().toLowerCase();
 }
 
+function toCatalogKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[.#$/\[\]\u0000-\u001f\u007f]/g, "")
+    .replace(/\s+/g, "-");
+}
+
 function findCatalogGroupKey(catalog, groupValue) {
   const needle = normalize(groupValue);
+  const needleKey = toCatalogKey(groupValue);
   if (!needle) return "";
 
   const entries = Object.entries(catalog || {});
-  const byKey = entries.find(([key]) => normalize(key) === needle);
+  const byKey = entries.find(
+    ([key]) => normalize(key) === needle || toCatalogKey(key) === needleKey
+  );
   if (byKey) return byKey[0];
 
-  const byName = entries.find(([, value]) => normalize(value?.name) === needle);
+  const byName = entries.find(
+    ([, value]) =>
+      normalize(value?.name) === needle || toCatalogKey(value?.name) === needleKey
+  );
   return byName ? byName[0] : "";
 }
 
@@ -450,8 +464,8 @@ export default function SubmitPage() {
       // Always publish to shared library so other users can find/add the card.
       updates[`items/${itemId}`] = base;
       if (resolvedAlbum && group.trim()) {
-        const groupKey = matchedCatalogGroupKey || normalize(group.trim());
-        const albumKey = normalize(resolvedAlbum);
+        const groupKey = matchedCatalogGroupKey || toCatalogKey(group.trim());
+        const albumKey = toCatalogKey(resolvedAlbum);
         if (groupKey && albumKey) {
           updates[`meta/groupCatalog/${groupKey}/name`] =
             groupCatalog[groupKey]?.name || group.trim();
@@ -471,8 +485,9 @@ export default function SubmitPage() {
   async function handleAddGroupToList() {
     setError("");
     const name = group.trim();
-    const key = normalize(name);
+    const key = toCatalogKey(name);
     if (!name) return;
+    if (!key) return setError("Invalid group name.");
     if (hasGroupInCatalog) return;
 
     try {
@@ -498,10 +513,11 @@ export default function SubmitPage() {
     setError("");
     const groupName = group.trim();
     const memberName = member.trim();
-    const groupKey = normalize(groupName);
-    const memberKey = normalize(memberName);
+    const groupKey = toCatalogKey(groupName);
+    const memberKey = toCatalogKey(memberName);
 
     if (!groupName || !memberName) return;
+    if (!groupKey || !memberKey) return setError("Invalid group/member value.");
     if (hasMemberInCatalog) return;
 
     try {
@@ -532,8 +548,9 @@ export default function SubmitPage() {
   async function handleAddPobStoreToList() {
     setError("");
     const name = formatPobStoreName(pobStore);
-    const key = normalize(name);
+    const key = toCatalogKey(name);
     if (!name) return;
+    if (!key) return setError("Invalid POB store name.");
     if (hasPobStoreInCatalog) return;
 
     try {

@@ -23,6 +23,14 @@ function normalize(v) {
   return String(v || "").trim().toLowerCase();
 }
 
+function toCatalogKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[.#$/\[\]\u0000-\u001f\u007f]/g, "")
+    .replace(/\s+/g, "-");
+}
+
 export default function AdminPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -156,7 +164,7 @@ export default function AdminPage() {
 
       const albumName = String(item.album || "").trim();
       if (!albumName) continue;
-      const derivedKey = normalize(albumName);
+      const derivedKey = toCatalogKey(albumName);
       if (!merged.has(derivedKey)) {
         merged.set(derivedKey, { key: derivedKey, name: albumName, inCatalog: false });
       }
@@ -282,7 +290,7 @@ export default function AdminPage() {
   async function handleAddGroup() {
     setError("");
     const name = groupInput.trim();
-    const key = normalize(name);
+    const key = toCatalogKey(name);
     if (!name) return;
     if (!key) return;
     if (groupCatalog[key]) {
@@ -313,10 +321,10 @@ export default function AdminPage() {
 
   async function handleAddMember() {
     setError("");
-    const groupKey = selectedGroupKey || normalize(groupInput);
+    const groupKey = selectedGroupKey || toCatalogKey(groupInput);
     const memberName = memberInput.trim();
-    const memberKey = normalize(memberName);
-    if (!groupKey || !memberName) return;
+    const memberKey = toCatalogKey(memberName);
+    if (!groupKey || !memberName || !memberKey) return;
 
     const groupName = groupCatalog[groupKey]?.name || groupInput.trim() || groupKey;
 
@@ -412,7 +420,7 @@ export default function AdminPage() {
   async function handleAddAlbum(nameOverride = "") {
     setError("");
     const albumName = String(nameOverride || albumInput).trim();
-    const albumKey = normalize(albumName);
+    const albumKey = toCatalogKey(albumName);
     if (!selectedGroupKey || !albumName || !albumKey) return;
 
     setCatalogSaving(true);
@@ -445,7 +453,7 @@ export default function AdminPage() {
     setError("");
     const oldKey = editingAlbumKey;
     const newName = editingAlbumName.trim();
-    const newKey = normalize(newName);
+    const newKey = toCatalogKey(newName);
     if (!selectedGroupKey || !oldKey || !newName || !newKey) return;
 
     setCatalogSaving(true);
