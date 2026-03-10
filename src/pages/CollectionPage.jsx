@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { ref, get, remove } from "firebase/database";
 import { auth, db } from "../../firebase-config";
+import { formatRarityLabel } from "../lib/rarity";
 import Nav from "../components/Nav";
 import StorageImage from "../components/StorageImage";
 
@@ -77,7 +78,7 @@ export default function CollectionPage() {
   }, [items]);
 
   const rarityOptions = useMemo(() => {
-    const vals = new Set(items.map((item) => String(item.rarity || "").trim()).filter(Boolean));
+    const vals = new Set(items.map((item) => formatRarityLabel(item.rarity)).filter(Boolean));
     return Array.from(vals).sort((a, b) => a.localeCompare(b));
   }, [items]);
 
@@ -91,7 +92,7 @@ export default function CollectionPage() {
           .includes(term);
       const matchesMember = !memberFilter || norm(item.member) === norm(memberFilter);
       const matchesAlbum = !albumFilter || norm(item.album) === norm(albumFilter);
-      const matchesRarity = !rarityFilter || norm(item.rarity) === norm(rarityFilter);
+      const matchesRarity = !rarityFilter || norm(formatRarityLabel(item.rarity)) === norm(rarityFilter);
       return matchesSearch && matchesMember && matchesAlbum && matchesRarity;
     });
 
@@ -106,7 +107,7 @@ export default function CollectionPage() {
         return String(a.album || "").localeCompare(String(b.album || ""));
       }
       if (sortBy === "rarity_az") {
-        return String(a.rarity || "").localeCompare(String(b.rarity || ""));
+        return formatRarityLabel(a.rarity).localeCompare(formatRarityLabel(b.rarity));
       }
       return Number(b.createdAt || 0) - Number(a.createdAt || 0);
     });
@@ -255,7 +256,7 @@ export default function CollectionPage() {
                 </p>
                 <p className="photo-meta">
                   {item.album || item.sourceName || "Unknown source"}
-                  {item.rarity ? ` • ${item.rarity}` : ""}
+                  {item.rarity ? ` • ${formatRarityLabel(item.rarity)}` : ""}
                 </p>
               </div>
             </Link>

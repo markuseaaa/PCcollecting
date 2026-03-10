@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { ref as dbRef, get, push, update, serverTimestamp } from "firebase/database";
 import { auth, db } from "../../firebase-config";
+import { formatRarityLabel } from "../lib/rarity";
 import Nav from "../components/Nav";
 import StorageImage from "../components/StorageImage";
 
@@ -219,6 +220,7 @@ export default function AddItem() {
               <p className="photo-meta">
                 {item.album || item.sourceName || "Unknown source"}
                 {item.version ? ` • ${item.version}` : ""}
+                {item.rarity ? ` • ${formatRarityLabel(item.rarity)}` : ""}
               </p>
               <button
                 className="btn btn-primary small"

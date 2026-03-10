@@ -700,7 +700,7 @@ textarea:focus {
 
 @media (max-width: 420px) {
   .app-shell {
-    width: calc(100% - 1rem);
+    width: calc(100% - 2rem);
     margin-top: 0.7rem;
   }
 

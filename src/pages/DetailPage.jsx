@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { ref, get } from "firebase/database";
 import { auth, db } from "../../firebase-config";
+import { formatRarityLabel } from "../lib/rarity";
 import Nav from "../components/Nav";
 
 export default function DetailPage() {
@@ -114,7 +115,7 @@ export default function DetailPage() {
           </li>
           <li>
             <span>Rarity</span>
-            <strong>{item.rarity || "-"}</strong>
+            <strong>{formatRarityLabel(item.rarity) || "-"}</strong>
           </li>
           {item.pobStore ? (
             <li>

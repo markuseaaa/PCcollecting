@@ -99,6 +99,10 @@ export default function SubmitPage() {
     };
   }, [photoFile]);
 
+  useEffect(() => {
+    if (rarity === "pob") setVersion("");
+  }, [rarity]);
+
   const albumOptions = useMemo(() => {
     const g = normalize(group);
     if (!g) return [];
@@ -613,14 +617,16 @@ export default function SubmitPage() {
           </label>
         )}
 
-        <label>
-          Version
-          <input
-            value={version}
-            onChange={(e) => setVersion(e.target.value)}
-            placeholder="e.g. Pathfinder ver."
-          />
-        </label>
+        {rarity !== "pob" && (
+          <label>
+            Version
+            <input
+              value={version}
+              onChange={(e) => setVersion(e.target.value)}
+              placeholder="e.g. Pathfinder ver."
+            />
+          </label>
+        )}
 
         <label>
           Generated title

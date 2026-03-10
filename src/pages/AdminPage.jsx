@@ -3,6 +3,7 @@ import { ref, get, update } from "firebase/database";
 import { serverTimestamp } from "firebase/database";
 import { auth, db } from "../../firebase-config";
 import { hasAdminClaim } from "../lib/adminAuth";
+import { formatRarityLabel } from "../lib/rarity";
 import StorageImage from "../components/StorageImage";
 import Nav from "../components/Nav";
 
@@ -432,7 +433,7 @@ export default function AdminPage() {
                     </p>
                     <p className="photo-meta">
                       {item.album || item.sourceName || "Unknown source"}
-                      {item.rarity ? ` • ${item.rarity}` : ""}
+                      {item.rarity ? ` • ${formatRarityLabel(item.rarity)}` : ""}
                     </p>
                   </>
                 ) : (
