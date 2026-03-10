@@ -323,12 +323,24 @@ p {
 }
 
 .photo-card.static {
+  display: flex;
+  flex-direction: column;
   padding-bottom: 0.5rem;
 }
 
 .photo-card-link {
   display: grid;
   color: inherit;
+}
+
+.photo-card.static .photo-card-link {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.photo-card.static .photo-card-link > div {
+  flex: 1;
 }
 
 .photo-card img,
@@ -367,6 +379,7 @@ p {
 
 .card-actions {
   padding: 0 0.45rem;
+  margin-top: auto;
 }
 
 .photo-card .btn.small {
@@ -404,6 +417,11 @@ p {
   font-weight: 700;
   overflow-wrap: anywhere;
   word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.2em;
 }
 
 .photo-meta {
@@ -577,6 +595,10 @@ textarea:focus {
 
 .crop-hint {
   font-size: 0.8rem;
+}
+
+.search-hint {
+  margin: 0.35rem 0.4rem 0.2rem;
 }
 
 .option-list {
@@ -787,6 +809,7 @@ textarea:focus {
   .photo-title {
     font-size: clamp(0.52rem, 2.2vw, 0.64rem);
     line-height: 1.2;
+    min-height: 2.4em;
   }
 
   .collection-title {
@@ -808,6 +831,12 @@ textarea:focus {
 
   .photo-meta {
     display: none;
+  }
+
+  .card-actions .danger-btn {
+    font-size: 0.62rem;
+    min-height: 1.65rem;
+    padding: 0.3rem 0.3rem;
   }
 
   .bottom-nav {

@@ -13,6 +13,18 @@ function normalize(str) {
   return String(str || "").trim().toLowerCase();
 }
 
+function findCatalogGroupKey(catalog, groupValue) {
+  const needle = normalize(groupValue);
+  if (!needle) return "";
+
+  const entries = Object.entries(catalog || {});
+  const byKey = entries.find(([key]) => normalize(key) === needle);
+  if (byKey) return byKey[0];
+
+  const byName = entries.find(([, value]) => normalize(value?.name) === needle);
+  return byName ? byName[0] : "";
+}
+
 export default function SubmitPage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
@@ -110,21 +122,30 @@ export default function SubmitPage() {
     if (rarity !== "others") setOtherType("");
   }, [rarity]);
 
-  const albumOptions = useMemo(() => {
-    const g = normalize(group);
-    if (!g) return [];
-
-    const set = new Set();
-    for (const item of existingItems) {
-      if (normalize(item.group) !== g) continue;
-      const albumName = String(item.album || "").trim();
-      if (albumName) set.add(albumName);
-    }
-
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [existingItems, group]);
-
   const normalizedGroup = normalize(group);
+  const matchedCatalogGroupKey = useMemo(
+    () => findCatalogGroupKey(groupCatalog, group),
+    [groupCatalog, group]
+  );
+
+  const albumOptions = useMemo(() => {
+    if (!normalizedGroup) return [];
+
+    const fromCatalog = matchedCatalogGroupKey
+      ? Object.values(groupCatalog[matchedCatalogGroupKey]?.albums || {})
+          .map((a) => String(a || "").trim())
+          .filter(Boolean)
+      : [];
+
+    const fromItems = existingItems
+      .filter((item) => normalize(item.group) === normalizedGroup)
+      .map((item) => String(item.album || "").trim())
+      .filter(Boolean);
+
+    return Array.from(new Set([...fromCatalog, ...fromItems])).sort((a, b) =>
+      a.localeCompare(b)
+    );
+  }, [existingItems, normalizedGroup, groupCatalog, matchedCatalogGroupKey]);
 
   const groupOptions = useMemo(() => {
     const fromCatalog = Object.values(groupCatalog || {})
@@ -142,8 +163,8 @@ export default function SubmitPage() {
 
   const hasGroupInCatalog = useMemo(() => {
     if (!normalizedGroup) return false;
-    return Object.keys(groupCatalog || {}).some((key) => normalize(key) === normalizedGroup);
-  }, [groupCatalog, normalizedGroup]);
+    return Boolean(matchedCatalogGroupKey);
+  }, [normalizedGroup, matchedCatalogGroupKey]);
 
   const groupSuggestions = useMemo(() => {
     if (!normalizedGroup) return groupOptions.slice(0, 8);
@@ -154,12 +175,8 @@ export default function SubmitPage() {
 
   const memberOptions = useMemo(() => {
     if (!normalizedGroup) return [];
-
-    const matchedCatalogGroup = Object.keys(groupCatalog || {}).find(
-      (key) => normalize(key) === normalizedGroup
-    );
-    const fromCatalog = matchedCatalogGroup
-      ? Object.values(groupCatalog[matchedCatalogGroup]?.members || {})
+    const fromCatalog = matchedCatalogGroupKey
+      ? Object.values(groupCatalog[matchedCatalogGroupKey]?.members || {})
           .map((m) => String(m || "").trim())
           .filter(Boolean)
       : [];
@@ -172,19 +189,16 @@ export default function SubmitPage() {
     return Array.from(new Set([...fromCatalog, ...fromItems])).sort((a, b) =>
       a.localeCompare(b)
     );
-  }, [groupCatalog, existingItems, normalizedGroup]);
+  }, [groupCatalog, existingItems, normalizedGroup, matchedCatalogGroupKey]);
 
   const hasMemberInCatalog = useMemo(() => {
     if (!normalizedGroup || !normalize(member)) return false;
-    const matchedCatalogGroup = Object.keys(groupCatalog || {}).find(
-      (key) => normalize(key) === normalizedGroup
-    );
-    if (!matchedCatalogGroup) return false;
-    const members = Object.values(groupCatalog[matchedCatalogGroup]?.members || {}).map((m) =>
+    if (!matchedCatalogGroupKey) return false;
+    const members = Object.values(groupCatalog[matchedCatalogGroupKey]?.members || {}).map((m) =>
       normalize(m)
     );
     return members.includes(normalize(member));
-  }, [groupCatalog, normalizedGroup, member]);
+  }, [groupCatalog, normalizedGroup, member, matchedCatalogGroupKey]);
 
   const normalizedMember = normalize(member);
 
@@ -435,6 +449,15 @@ export default function SubmitPage() {
 
       // Always publish to shared library so other users can find/add the card.
       updates[`items/${itemId}`] = base;
+      if (resolvedAlbum && group.trim()) {
+        const groupKey = matchedCatalogGroupKey || normalize(group.trim());
+        const albumKey = normalize(resolvedAlbum);
+        if (groupKey && albumKey) {
+          updates[`meta/groupCatalog/${groupKey}/name`] =
+            groupCatalog[groupKey]?.name || group.trim();
+          updates[`meta/groupCatalog/${groupKey}/albums/${albumKey}`] = resolvedAlbum;
+        }
+      }
 
       await update(dbRef(db), updates);
       navigate(selectedCollectionId ? `/users/${uid}/collections/${selectedCollectionId}` : "/my-photocards");

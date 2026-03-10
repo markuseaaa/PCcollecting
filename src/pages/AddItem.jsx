@@ -76,10 +76,9 @@ export default function AddItem() {
 
   const results = useMemo(() => {
     const term = query.trim().toLowerCase();
+    if (term.length < 3) return [];
     const ownedSet = new Set(ownedItemIds.map((id) => String(id)));
     const availableItems = allItems.filter((item) => !ownedSet.has(String(item.id)));
-
-    if (!term) return availableItems.slice(0, 40);
     return availableItems.filter((item) =>
       `${item.title || ""} ${item.group || ""} ${item.member || ""} ${item.version || item.era || ""}`
         .toLowerCase()
@@ -196,7 +195,7 @@ export default function AddItem() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="group, member, version"
+            placeholder="Type at least 3 letters..."
           />
         </label>
       </section>
@@ -204,6 +203,12 @@ export default function AddItem() {
       {loading && <p className="muted">Loading library...</p>}
       {error && <p className="error-text">{error}</p>}
       {success && <p className="success-text">{success}</p>}
+      {!loading && query.trim().length < 3 ? (
+        <p className="muted search-hint">Start typing (minimum 3 letters) to search photocards.</p>
+      ) : null}
+      {!loading && query.trim().length >= 3 && results.length === 0 ? (
+        <p className="muted search-hint">No matches found.</p>
+      ) : null}
 
       <div className="card-grid">
         {results.map((item) => (

@@ -32,7 +32,11 @@ export default function AdminPage() {
   const [groupCatalog, setGroupCatalog] = useState({});
   const [query, setQuery] = useState("");
   const [groupInput, setGroupInput] = useState("");
+  const [groupNameInput, setGroupNameInput] = useState("");
   const [memberInput, setMemberInput] = useState("");
+  const [albumInput, setAlbumInput] = useState("");
+  const [editingAlbumKey, setEditingAlbumKey] = useState("");
+  const [editingAlbumName, setEditingAlbumName] = useState("");
   const [selectedGroupKey, setSelectedGroupKey] = useState("");
   const [catalogSaving, setCatalogSaving] = useState(false);
 
@@ -90,6 +94,7 @@ export default function AdminPage() {
         setGroupCatalog(catalogVal || {});
         const firstKey = Object.keys(catalogVal || {})[0] || "";
         setSelectedGroupKey(firstKey);
+        setGroupNameInput(catalogVal?.[firstKey]?.name || "");
       } catch (err) {
         if (!alive) return;
         setError(err?.message || "Could not load admin data.");
@@ -119,6 +124,46 @@ export default function AdminPage() {
       String(a[1]?.name || a[0]).localeCompare(String(b[1]?.name || b[0]))
     );
   }, [groupCatalog]);
+
+  const selectedGroup = useMemo(() => {
+    if (!selectedGroupKey) return null;
+    return groupCatalog[selectedGroupKey] || null;
+  }, [groupCatalog, selectedGroupKey]);
+
+  const selectedMembers = useMemo(() => {
+    return Object.entries(selectedGroup?.members || {}).sort((a, b) =>
+      String(a[1] || "").localeCompare(String(b[1] || ""))
+    );
+  }, [selectedGroup]);
+
+  const selectedAlbums = useMemo(() => {
+    if (!selectedGroupKey && !selectedGroup?.name) return [];
+
+    const keyNorm = normalize(selectedGroupKey);
+    const nameNorm = normalize(selectedGroup?.name || "");
+
+    const merged = new Map();
+    for (const [albumKey, albumName] of Object.entries(selectedGroup?.albums || {})) {
+      const name = String(albumName || "").trim();
+      if (!name) continue;
+      merged.set(albumKey, { key: albumKey, name, inCatalog: true });
+    }
+
+    for (const item of items) {
+      const itemGroup = normalize(item.group);
+      const groupMatch = itemGroup && (itemGroup === keyNorm || itemGroup === nameNorm);
+      if (!groupMatch) continue;
+
+      const albumName = String(item.album || "").trim();
+      if (!albumName) continue;
+      const derivedKey = normalize(albumName);
+      if (!merged.has(derivedKey)) {
+        merged.set(derivedKey, { key: derivedKey, name: albumName, inCatalog: false });
+      }
+    }
+
+    return Array.from(merged.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [selectedGroup, selectedGroupKey, items]);
 
   function startEdit(item) {
     setEditingId(item.id);
@@ -254,9 +299,10 @@ export default function AdminPage() {
 
       setGroupCatalog((prev) => ({
         ...prev,
-        [key]: { name, members: {}, updatedAt: Date.now() },
+        [key]: { name, members: {}, albums: {}, updatedAt: Date.now() },
       }));
       setSelectedGroupKey(key);
+      setGroupNameInput(name);
       setGroupInput("");
     } catch (err) {
       setError(err?.message || "Could not add group.");
@@ -292,6 +338,9 @@ export default function AdminPage() {
             ...(prev[groupKey]?.members || {}),
             [memberKey]: memberName,
           },
+          albums: {
+            ...(prev[groupKey]?.albums || {}),
+          },
         },
       }));
       setSelectedGroupKey(groupKey);
@@ -299,6 +348,164 @@ export default function AdminPage() {
       setGroupInput("");
     } catch (err) {
       setError(err?.message || "Could not add member.");
+    } finally {
+      setCatalogSaving(false);
+    }
+  }
+
+  async function handleRenameSelectedGroup() {
+    setError("");
+    const nextName = groupNameInput.trim();
+    if (!selectedGroupKey || !nextName) return;
+
+    setCatalogSaving(true);
+    try {
+      await update(ref(db), {
+        [`meta/groupCatalog/${selectedGroupKey}/name`]: nextName,
+        [`meta/groupCatalog/${selectedGroupKey}/updatedAt`]: serverTimestamp(),
+      });
+
+      setGroupCatalog((prev) => ({
+        ...prev,
+        [selectedGroupKey]: {
+          ...(prev[selectedGroupKey] || {}),
+          name: nextName,
+          updatedAt: Date.now(),
+        },
+      }));
+    } catch (err) {
+      setError(err?.message || "Could not rename group.");
+    } finally {
+      setCatalogSaving(false);
+    }
+  }
+
+  async function handleRemoveMember(memberKey) {
+    if (!selectedGroupKey || !memberKey) return;
+    setError("");
+    setCatalogSaving(true);
+    try {
+      await update(ref(db), {
+        [`meta/groupCatalog/${selectedGroupKey}/members/${memberKey}`]: null,
+        [`meta/groupCatalog/${selectedGroupKey}/updatedAt`]: serverTimestamp(),
+      });
+
+      setGroupCatalog((prev) => {
+        const nextMembers = { ...(prev[selectedGroupKey]?.members || {}) };
+        delete nextMembers[memberKey];
+        return {
+          ...prev,
+          [selectedGroupKey]: {
+            ...(prev[selectedGroupKey] || {}),
+            members: nextMembers,
+            updatedAt: Date.now(),
+          },
+        };
+      });
+    } catch (err) {
+      setError(err?.message || "Could not remove member.");
+    } finally {
+      setCatalogSaving(false);
+    }
+  }
+
+  async function handleAddAlbum(nameOverride = "") {
+    setError("");
+    const albumName = String(nameOverride || albumInput).trim();
+    const albumKey = normalize(albumName);
+    if (!selectedGroupKey || !albumName || !albumKey) return;
+
+    setCatalogSaving(true);
+    try {
+      await update(ref(db), {
+        [`meta/groupCatalog/${selectedGroupKey}/albums/${albumKey}`]: albumName,
+        [`meta/groupCatalog/${selectedGroupKey}/updatedAt`]: serverTimestamp(),
+      });
+
+      setGroupCatalog((prev) => ({
+        ...prev,
+        [selectedGroupKey]: {
+          ...(prev[selectedGroupKey] || {}),
+          albums: {
+            ...(prev[selectedGroupKey]?.albums || {}),
+            [albumKey]: albumName,
+          },
+          updatedAt: Date.now(),
+        },
+      }));
+      if (!nameOverride) setAlbumInput("");
+    } catch (err) {
+      setError(err?.message || "Could not add album.");
+    } finally {
+      setCatalogSaving(false);
+    }
+  }
+
+  async function handleRenameAlbum() {
+    setError("");
+    const oldKey = editingAlbumKey;
+    const newName = editingAlbumName.trim();
+    const newKey = normalize(newName);
+    if (!selectedGroupKey || !oldKey || !newName || !newKey) return;
+
+    setCatalogSaving(true);
+    try {
+      const updates = {
+        [`meta/groupCatalog/${selectedGroupKey}/updatedAt`]: serverTimestamp(),
+      };
+      if (oldKey !== newKey) {
+        updates[`meta/groupCatalog/${selectedGroupKey}/albums/${oldKey}`] = null;
+      }
+      updates[`meta/groupCatalog/${selectedGroupKey}/albums/${newKey}`] = newName;
+      await update(ref(db), updates);
+
+      setGroupCatalog((prev) => {
+        const nextAlbums = { ...(prev[selectedGroupKey]?.albums || {}) };
+        if (oldKey !== newKey) delete nextAlbums[oldKey];
+        nextAlbums[newKey] = newName;
+        return {
+          ...prev,
+          [selectedGroupKey]: {
+            ...(prev[selectedGroupKey] || {}),
+            albums: nextAlbums,
+            updatedAt: Date.now(),
+          },
+        };
+      });
+
+      setEditingAlbumKey("");
+      setEditingAlbumName("");
+    } catch (err) {
+      setError(err?.message || "Could not rename album.");
+    } finally {
+      setCatalogSaving(false);
+    }
+  }
+
+  async function handleRemoveAlbum(albumKey) {
+    if (!selectedGroupKey || !albumKey) return;
+    setError("");
+    setCatalogSaving(true);
+    try {
+      await update(ref(db), {
+        [`meta/groupCatalog/${selectedGroupKey}/albums/${albumKey}`]: null,
+        [`meta/groupCatalog/${selectedGroupKey}/updatedAt`]: serverTimestamp(),
+      });
+
+      setGroupCatalog((prev) => {
+        const nextAlbums = { ...(prev[selectedGroupKey]?.albums || {}) };
+        delete nextAlbums[albumKey];
+        return {
+          ...prev,
+          [selectedGroupKey]: {
+            ...(prev[selectedGroupKey] || {}),
+            albums: nextAlbums,
+            updatedAt: Date.now(),
+          },
+        };
+      });
+    } catch (err) {
+      setError(err?.message || "Could not remove album.");
     } finally {
       setCatalogSaving(false);
     }
@@ -346,8 +553,8 @@ export default function AdminPage() {
       </section>
 
       <section className="section-block">
-        <h2>Group & member list</h2>
-        <p className="muted">Manage the options shown when users add new photocards.</p>
+        <h2>Group, Member & Album List</h2>
+        <p className="muted">Manage group names, members, and album options shown when adding cards.</p>
 
         <div className="form-grid compact">
           <label>
@@ -373,7 +580,11 @@ export default function AdminPage() {
             Select group
             <select
               value={selectedGroupKey}
-              onChange={(e) => setSelectedGroupKey(e.target.value)}
+              onChange={(e) => {
+                const nextKey = e.target.value;
+                setSelectedGroupKey(nextKey);
+                setGroupNameInput(groupCatalog[nextKey]?.name || "");
+              }}
             >
               <option value="">Choose group</option>
               {sortedGroupEntries.map(([key, value]) => (
@@ -391,6 +602,14 @@ export default function AdminPage() {
               placeholder="e.g. Sana"
             />
           </label>
+          <label>
+            Album name
+            <input
+              value={albumInput}
+              onChange={(e) => setAlbumInput(e.target.value)}
+              placeholder="e.g. Between 1&2"
+            />
+          </label>
         </div>
 
         <div className="center-action">
@@ -402,7 +621,137 @@ export default function AdminPage() {
           >
             Add member
           </button>
+          <button
+            type="button"
+            className="btn btn-ghost small"
+            onClick={handleAddAlbum}
+            disabled={catalogSaving || !selectedGroupKey || !albumInput.trim()}
+          >
+            Add album
+          </button>
         </div>
+
+        {selectedGroupKey ? (
+          <>
+            <div className="form-grid compact">
+              <label>
+                Group display name
+                <input
+                  value={groupNameInput}
+                  onChange={(e) => setGroupNameInput(e.target.value)}
+                  placeholder="Group name"
+                />
+              </label>
+              <div className="center-action">
+                <button
+                  type="button"
+                  className="btn btn-ghost small"
+                  onClick={handleRenameSelectedGroup}
+                  disabled={catalogSaving || !groupNameInput.trim()}
+                >
+                  Save group name
+                </button>
+              </div>
+            </div>
+
+            <h3>Members in selected group</h3>
+            {selectedMembers.length === 0 ? <p className="muted">No members yet.</p> : null}
+            <ul className="member-list">
+              {selectedMembers.map(([memberKey, memberName]) => (
+                <li key={memberKey}>
+                  <span>{memberName}</span>
+                  <button
+                    type="button"
+                    className="btn btn-ghost small"
+                    onClick={() => handleRemoveMember(memberKey)}
+                    disabled={catalogSaving}
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+
+            <h3>Albums in selected group</h3>
+            {selectedAlbums.length === 0 ? <p className="muted">No albums yet.</p> : null}
+            <ul className="member-list">
+              {selectedAlbums.map((album) => (
+                <li key={album.key}>
+                  <span>
+                    {album.name}
+                    {!album.inCatalog ? " (from items)" : ""}
+                  </span>
+                  {album.inCatalog ? (
+                    <div className="center-action">
+                      <button
+                        type="button"
+                        className="btn btn-ghost small"
+                        onClick={() => {
+                          setEditingAlbumKey(album.key);
+                          setEditingAlbumName(album.name);
+                        }}
+                        disabled={catalogSaving}
+                      >
+                        Rename
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost small"
+                        onClick={() => handleRemoveAlbum(album.key)}
+                        disabled={catalogSaving}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn-ghost small"
+                      onClick={() => handleAddAlbum(album.name)}
+                      disabled={catalogSaving}
+                    >
+                      Add to catalog
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+
+            {editingAlbumKey ? (
+              <div className="form-grid compact">
+                <label>
+                  Rename album
+                  <input
+                    value={editingAlbumName}
+                    onChange={(e) => setEditingAlbumName(e.target.value)}
+                    placeholder="Album name"
+                  />
+                </label>
+                <div className="center-action">
+                  <button
+                    type="button"
+                    className="btn btn-primary small"
+                    onClick={handleRenameAlbum}
+                    disabled={catalogSaving || !editingAlbumName.trim()}
+                  >
+                    Save album name
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost small"
+                    onClick={() => {
+                      setEditingAlbumKey("");
+                      setEditingAlbumName("");
+                    }}
+                    disabled={catalogSaving}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </>
+        ) : null}
 
         <ul className="member-list">
           {sortedGroupEntries.map(([key, value]) => {
