@@ -15,6 +15,8 @@ function norm(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+const MIN_MATCH_PERCENT = 60;
+
 export default function MyPhotocardsPage() {
   const [items, setItems] = useState([]);
   const [collectionMap, setCollectionMap] = useState({});
@@ -199,7 +201,7 @@ export default function MyPhotocardsPage() {
         })
         .sort((a, b) => b.similarity - a.similarity);
 
-      const topMatches = ranked.slice(0, 3).filter((item) => item.similarity >= 20);
+      const topMatches = ranked.slice(0, 3).filter((item) => item.similarity >= MIN_MATCH_PERCENT);
       if (topMatches.length === 0) {
         setCheckMessage("No reliable match found in your photocards.");
         return;

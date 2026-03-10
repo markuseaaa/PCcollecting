@@ -15,6 +15,8 @@ function similarityFromDistance(distance, maxBits = 256) {
   return Math.max(0, Math.round((1 - distance / maxBits) * 100));
 }
 
+const MIN_MATCH_PERCENT = 60;
+
 export default function ScanPage() {
   const [collections, setCollections] = useState([]);
   const [ownedItemIds, setOwnedItemIds] = useState([]);
@@ -123,9 +125,9 @@ export default function ScanPage() {
             similarity: similarityFromDistance(dist),
           };
         })
-        .filter((item) => item.similarity > 30)
+        .filter((item) => item.similarity >= MIN_MATCH_PERCENT)
         .sort((a, b) => b.similarity - a.similarity)
-        .slice(0, 12);
+        .slice(0, 3);
 
       setMatches(ranked);
     } catch (err) {
