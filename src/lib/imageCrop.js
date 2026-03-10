@@ -15,7 +15,7 @@ export async function cropImageFileToBlob(file, cropState, outType = "image/jpeg
     const ctx = canvas.getContext("2d");
 
     const outW = 900;
-    const outH = 1200;
+    const outH = 1350;
     canvas.width = outW;
     canvas.height = outH;
 

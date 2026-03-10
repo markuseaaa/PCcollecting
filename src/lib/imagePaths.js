@@ -1,4 +1,4 @@
-export const DEFAULT_CARD_THUMB_SIZE = "300x400";
+export const DEFAULT_CARD_THUMB_SIZE = "300x450";
 
 export function buildResizedPath(path, size = DEFAULT_CARD_THUMB_SIZE) {
   const p = String(path || "").trim();

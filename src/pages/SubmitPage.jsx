@@ -391,7 +391,7 @@ export default function SubmitPage() {
                 checked={cropEnabled}
                 onChange={(e) => setCropEnabled(e.target.checked)}
               />
-              Crop to 3:4 card
+              Crop to 3:4.5 card
             </label>
 
             <label>
