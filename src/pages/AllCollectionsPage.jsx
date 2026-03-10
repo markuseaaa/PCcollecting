@@ -63,8 +63,10 @@ export default function AllCollectionsPage() {
               alt={collection.title || "Collection"}
             />
             <div>
-              <p className="photo-title">{collection.title || "Untitled"}</p>
-              <p className="photo-meta">{collection.description || "Photocard binder"}</p>
+              <p className="collection-title">{collection.title || "Untitled"}</p>
+              <p className="collection-description">
+                {collection.description || "Photocard binder"}
+              </p>
             </div>
           </Link>
         ))}

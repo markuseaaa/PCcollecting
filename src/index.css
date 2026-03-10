@@ -347,6 +347,24 @@ p {
   gap: 0.3rem;
 }
 
+.collection-tile > div {
+  min-height: 5.4rem;
+  padding: 0.8rem 0.85rem;
+  align-content: start;
+}
+
+.collection-title {
+  font-size: 1.03rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.collection-description {
+  font-size: 0.84rem;
+  color: var(--muted);
+  line-height: 1.3;
+}
+
 .card-actions {
   padding: 0 0.45rem;
 }
@@ -497,6 +515,13 @@ textarea:focus {
   display: flex;
   justify-content: center;
   flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 0.6rem;
 }
 
@@ -708,6 +733,15 @@ textarea:focus {
   .photo-title {
     font-size: 0.64rem;
     line-height: 1.2;
+  }
+
+  .collection-title {
+    font-size: 0.95rem;
+  }
+
+  .collection-description {
+    display: block;
+    font-size: 0.78rem;
   }
 
   .photo-meta {

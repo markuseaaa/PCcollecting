@@ -10,6 +10,7 @@ import Signup from "./pages/Signup";
 import HomePage from "./pages/HomePage";
 import AllCollectionsPage from "./pages/AllCollectionsPage";
 import CreateCollection from "./pages/CreateCollection";
+import EditCollectionPage from "./pages/EditCollectionPage";
 import CollectionPage from "./pages/CollectionPage";
 import AddItem from "./pages/AddItem";
 import SubmitPage from "./pages/SubmitPage";
@@ -72,6 +73,10 @@ export default function App() {
             <Route path="/homepage" element={<HomePage />} />
             <Route path="/allcollections" element={<AllCollectionsPage />} />
             <Route path="/createcollection" element={<CreateCollection />} />
+            <Route
+              path="/users/:uid/collections/:collectionId/edit"
+              element={<EditCollectionPage />}
+            />
             <Route
               path="/users/:uid/collections/:collectionId"
               element={<CollectionPage />}

@@ -156,9 +156,17 @@ export default function CollectionPage() {
           <h1>{collection?.title || "Collection"}</h1>
           <p className="muted">{collection?.description || "Photocard binder"}</p>
         </div>
-        <Link to={`/submit?collectionId=${collectionId}`} className="btn btn-primary small">
-          Add new
-        </Link>
+        <div className="section-actions">
+          <Link
+            to={`/users/${uid}/collections/${collectionId}/edit`}
+            className="btn btn-ghost small"
+          >
+            Edit collection
+          </Link>
+          <Link to={`/submit?collectionId=${collectionId}`} className="btn btn-primary small">
+            Add new
+          </Link>
+        </div>
       </section>
 
       <section className="section-block">

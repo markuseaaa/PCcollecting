@@ -27,7 +27,12 @@ export default function AdminPage() {
   const [error, setError] = useState("");
 
   const [items, setItems] = useState([]);
+  const [groupCatalog, setGroupCatalog] = useState({});
   const [query, setQuery] = useState("");
+  const [groupInput, setGroupInput] = useState("");
+  const [memberInput, setMemberInput] = useState("");
+  const [selectedGroupKey, setSelectedGroupKey] = useState("");
+  const [catalogSaving, setCatalogSaving] = useState(false);
 
   const [editingId, setEditingId] = useState("");
   const [form, setForm] = useState({
@@ -65,8 +70,11 @@ export default function AdminPage() {
           return;
         }
 
-        const snap = await get(ref(db, "items"));
-        const val = snap.exists() ? snap.val() : {};
+        const [itemSnap, catalogSnap] = await Promise.all([
+          get(ref(db, "items")),
+          get(ref(db, "meta/groupCatalog")),
+        ]);
+        const val = itemSnap.exists() ? itemSnap.val() : {};
         const list = Object.keys(val || {})
           .filter((k) => !k.startsWith("_"))
           .map((k) => ({ id: k, ...val[k] }))
@@ -74,6 +82,11 @@ export default function AdminPage() {
 
         if (!alive) return;
         setItems(list);
+
+        const catalogVal = catalogSnap.exists() ? catalogSnap.val() : {};
+        setGroupCatalog(catalogVal || {});
+        const firstKey = Object.keys(catalogVal || {})[0] || "";
+        setSelectedGroupKey(firstKey);
       } catch (err) {
         if (!alive) return;
         setError(err?.message || "Could not load admin data.");
@@ -97,6 +110,12 @@ export default function AdminPage() {
       ).includes(term)
     );
   }, [items, query]);
+
+  const sortedGroupEntries = useMemo(() => {
+    return Object.entries(groupCatalog || {}).sort((a, b) =>
+      String(a[1]?.name || a[0]).localeCompare(String(b[1]?.name || b[0]))
+    );
+  }, [groupCatalog]);
 
   function startEdit(item) {
     setEditingId(item.id);
@@ -210,6 +229,76 @@ export default function AdminPage() {
     }
   }
 
+  async function handleAddGroup() {
+    setError("");
+    const name = groupInput.trim();
+    const key = normalize(name);
+    if (!name) return;
+    if (!key) return;
+    if (groupCatalog[key]) {
+      setSelectedGroupKey(key);
+      return;
+    }
+
+    setCatalogSaving(true);
+    try {
+      await update(ref(db), {
+        [`meta/groupCatalog/${key}/name`]: name,
+        [`meta/groupCatalog/${key}/updatedAt`]: serverTimestamp(),
+      });
+
+      setGroupCatalog((prev) => ({
+        ...prev,
+        [key]: { name, members: {}, updatedAt: Date.now() },
+      }));
+      setSelectedGroupKey(key);
+      setGroupInput("");
+    } catch (err) {
+      setError(err?.message || "Could not add group.");
+    } finally {
+      setCatalogSaving(false);
+    }
+  }
+
+  async function handleAddMember() {
+    setError("");
+    const groupKey = selectedGroupKey || normalize(groupInput);
+    const memberName = memberInput.trim();
+    const memberKey = normalize(memberName);
+    if (!groupKey || !memberName) return;
+
+    const groupName = groupCatalog[groupKey]?.name || groupInput.trim() || groupKey;
+
+    setCatalogSaving(true);
+    try {
+      await update(ref(db), {
+        [`meta/groupCatalog/${groupKey}/name`]: groupName,
+        [`meta/groupCatalog/${groupKey}/members/${memberKey}`]: memberName,
+        [`meta/groupCatalog/${groupKey}/updatedAt`]: serverTimestamp(),
+      });
+
+      setGroupCatalog((prev) => ({
+        ...prev,
+        [groupKey]: {
+          ...(prev[groupKey] || {}),
+          name: groupName,
+          updatedAt: Date.now(),
+          members: {
+            ...(prev[groupKey]?.members || {}),
+            [memberKey]: memberName,
+          },
+        },
+      }));
+      setSelectedGroupKey(groupKey);
+      setMemberInput("");
+      setGroupInput("");
+    } catch (err) {
+      setError(err?.message || "Could not add member.");
+    } finally {
+      setCatalogSaving(false);
+    }
+  }
+
   if (loading) {
     return (
       <main className="page-content with-nav-space">
@@ -249,6 +338,78 @@ export default function AdminPage() {
           />
         </label>
         {error && <p className="error-text">{error}</p>}
+      </section>
+
+      <section className="section-block">
+        <h2>Group & member list</h2>
+        <p className="muted">Manage the options shown when users add new photocards.</p>
+
+        <div className="form-grid compact">
+          <label>
+            Group name
+            <input
+              value={groupInput}
+              onChange={(e) => setGroupInput(e.target.value)}
+              placeholder="e.g. TWICE"
+            />
+          </label>
+          <div className="center-action">
+            <button
+              type="button"
+              className="btn btn-ghost small"
+              onClick={handleAddGroup}
+              disabled={catalogSaving || !groupInput.trim()}
+            >
+              Add group
+            </button>
+          </div>
+
+          <label>
+            Select group
+            <select
+              value={selectedGroupKey}
+              onChange={(e) => setSelectedGroupKey(e.target.value)}
+            >
+              <option value="">Choose group</option>
+              {sortedGroupEntries.map(([key, value]) => (
+                <option key={key} value={key}>
+                  {value?.name || key}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Member name
+            <input
+              value={memberInput}
+              onChange={(e) => setMemberInput(e.target.value)}
+              placeholder="e.g. Sana"
+            />
+          </label>
+        </div>
+
+        <div className="center-action">
+          <button
+            type="button"
+            className="btn btn-primary small"
+            onClick={handleAddMember}
+            disabled={catalogSaving || !(selectedGroupKey || groupInput.trim()) || !memberInput.trim()}
+          >
+            Add member
+          </button>
+        </div>
+
+        <ul className="member-list">
+          {sortedGroupEntries.map(([key, value]) => {
+            const members = Object.values(value?.members || {}).filter(Boolean);
+            return (
+              <li key={key}>
+                <span>{value?.name || key}</span>
+                <strong>{members.length} members</strong>
+              </li>
+            );
+          })}
+        </ul>
       </section>
 
       <div className="card-grid">

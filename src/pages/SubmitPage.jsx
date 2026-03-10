@@ -18,6 +18,7 @@ export default function SubmitPage() {
 
   const [collections, setCollections] = useState([]);
   const [existingItems, setExistingItems] = useState([]);
+  const [groupCatalog, setGroupCatalog] = useState({});
 
   const [selectedCollectionId, setSelectedCollectionId] = useState(
     params.get("collectionId") || ""
@@ -55,9 +56,10 @@ export default function SubmitPage() {
       const uid = auth.currentUser?.uid;
       if (!uid) return;
 
-      const [collectionSnap, globalItemsSnap] = await Promise.all([
+      const [collectionSnap, globalItemsSnap, catalogSnap] = await Promise.all([
         get(dbRef(db, `users/${uid}/collections`)),
         get(dbRef(db, "items")),
+        get(dbRef(db, "meta/groupCatalog")),
       ]);
 
       if (!alive) return;
@@ -73,6 +75,9 @@ export default function SubmitPage() {
         .filter((k) => !k.startsWith("_"))
         .map((k) => ({ id: k, ...itemVal[k] }));
       setExistingItems(itemList);
+
+      const catalogVal = catalogSnap.exists() ? catalogSnap.val() : {};
+      setGroupCatalog(catalogVal || {});
     }
 
     loadInitialData().catch((err) => setError(err?.message || "Could not load data."));
@@ -107,6 +112,61 @@ export default function SubmitPage() {
 
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [existingItems, group]);
+
+  const normalizedGroup = normalize(group);
+
+  const groupOptions = useMemo(() => {
+    const fromCatalog = Object.values(groupCatalog || {})
+      .map((entry) => String(entry?.name || "").trim())
+      .filter(Boolean);
+
+    const fromItems = existingItems
+      .map((item) => String(item.group || "").trim())
+      .filter(Boolean);
+
+    return Array.from(new Set([...fromCatalog, ...fromItems])).sort((a, b) =>
+      a.localeCompare(b)
+    );
+  }, [groupCatalog, existingItems]);
+
+  const hasGroupInCatalog = useMemo(() => {
+    if (!normalizedGroup) return false;
+    return Object.keys(groupCatalog || {}).some((key) => normalize(key) === normalizedGroup);
+  }, [groupCatalog, normalizedGroup]);
+
+  const memberOptions = useMemo(() => {
+    if (!normalizedGroup) return [];
+
+    const matchedCatalogGroup = Object.keys(groupCatalog || {}).find(
+      (key) => normalize(key) === normalizedGroup
+    );
+    const fromCatalog = matchedCatalogGroup
+      ? Object.values(groupCatalog[matchedCatalogGroup]?.members || {})
+          .map((m) => String(m || "").trim())
+          .filter(Boolean)
+      : [];
+
+    const fromItems = existingItems
+      .filter((item) => normalize(item.group) === normalizedGroup)
+      .map((item) => String(item.member || "").trim())
+      .filter(Boolean);
+
+    return Array.from(new Set([...fromCatalog, ...fromItems])).sort((a, b) =>
+      a.localeCompare(b)
+    );
+  }, [groupCatalog, existingItems, normalizedGroup]);
+
+  const hasMemberInCatalog = useMemo(() => {
+    if (!normalizedGroup || !normalize(member)) return false;
+    const matchedCatalogGroup = Object.keys(groupCatalog || {}).find(
+      (key) => normalize(key) === normalizedGroup
+    );
+    if (!matchedCatalogGroup) return false;
+    const members = Object.values(groupCatalog[matchedCatalogGroup]?.members || {}).map((m) =>
+      normalize(m)
+    );
+    return members.includes(normalize(member));
+  }, [groupCatalog, normalizedGroup, member]);
 
   const resolvedAlbum = useMemo(() => {
     if (!isAlbumBased) return "";
@@ -316,6 +376,67 @@ export default function SubmitPage() {
     }
   }
 
+  async function handleAddGroupToList() {
+    setError("");
+    const name = group.trim();
+    const key = normalize(name);
+    if (!name) return;
+    if (hasGroupInCatalog) return;
+
+    try {
+      await update(dbRef(db), {
+        [`meta/groupCatalog/${key}/name`]: name,
+        [`meta/groupCatalog/${key}/updatedAt`]: serverTimestamp(),
+      });
+      setGroupCatalog((prev) => ({
+        ...prev,
+        [key]: {
+          ...(prev[key] || {}),
+          name,
+          updatedAt: Date.now(),
+          members: prev[key]?.members || {},
+        },
+      }));
+    } catch (err) {
+      setError(err?.message || "Could not add group to list.");
+    }
+  }
+
+  async function handleAddMemberToList() {
+    setError("");
+    const groupName = group.trim();
+    const memberName = member.trim();
+    const groupKey = normalize(groupName);
+    const memberKey = normalize(memberName);
+
+    if (!groupName || !memberName) return;
+    if (hasMemberInCatalog) return;
+
+    try {
+      const updates = {
+        [`meta/groupCatalog/${groupKey}/name`]: groupName,
+        [`meta/groupCatalog/${groupKey}/members/${memberKey}`]: memberName,
+        [`meta/groupCatalog/${groupKey}/updatedAt`]: serverTimestamp(),
+      };
+      await update(dbRef(db), updates);
+
+      setGroupCatalog((prev) => ({
+        ...prev,
+        [groupKey]: {
+          ...(prev[groupKey] || {}),
+          name: groupName,
+          updatedAt: Date.now(),
+          members: {
+            ...(prev[groupKey]?.members || {}),
+            [memberKey]: memberName,
+          },
+        },
+      }));
+    } catch (err) {
+      setError(err?.message || "Could not add member to list.");
+    }
+  }
+
   return (
     <main className="page-content with-nav-space submit-page">
       <section className="section-block">
@@ -356,6 +477,7 @@ export default function SubmitPage() {
         <label>
           Group
           <input
+            list="group-options"
             value={group}
             onChange={(e) => {
               setGroup(e.target.value);
@@ -365,16 +487,37 @@ export default function SubmitPage() {
             placeholder="e.g. TWICE"
             required
           />
+          <datalist id="group-options">
+            {groupOptions.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+          {!hasGroupInCatalog && group.trim() ? (
+            <button type="button" className="btn btn-ghost small" onClick={handleAddGroupToList}>
+              Add group to list
+            </button>
+          ) : null}
         </label>
 
         <label>
           Member
           <input
+            list="member-options"
             value={member}
             onChange={(e) => setMember(e.target.value)}
             placeholder="e.g. Sana"
             required
           />
+          <datalist id="member-options">
+            {memberOptions.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+          {!hasMemberInCatalog && group.trim() && member.trim() ? (
+            <button type="button" className="btn btn-ghost small" onClick={handleAddMemberToList}>
+              Add member to list
+            </button>
+          ) : null}
         </label>
 
         {isAlbumBased && (
