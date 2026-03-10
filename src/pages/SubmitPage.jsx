@@ -134,6 +134,13 @@ export default function SubmitPage() {
     return Object.keys(groupCatalog || {}).some((key) => normalize(key) === normalizedGroup);
   }, [groupCatalog, normalizedGroup]);
 
+  const groupSuggestions = useMemo(() => {
+    if (!normalizedGroup) return groupOptions.slice(0, 8);
+    return groupOptions
+      .filter((name) => normalize(name).includes(normalizedGroup))
+      .slice(0, 8);
+  }, [groupOptions, normalizedGroup]);
+
   const memberOptions = useMemo(() => {
     if (!normalizedGroup) return [];
 
@@ -167,6 +174,16 @@ export default function SubmitPage() {
     );
     return members.includes(normalize(member));
   }, [groupCatalog, normalizedGroup, member]);
+
+  const normalizedMember = normalize(member);
+
+  const memberSuggestions = useMemo(() => {
+    if (!normalizedGroup) return [];
+    if (!normalizedMember) return memberOptions.slice(0, 8);
+    return memberOptions
+      .filter((name) => normalize(name).includes(normalizedMember))
+      .slice(0, 8);
+  }, [memberOptions, normalizedGroup, normalizedMember]);
 
   const resolvedAlbum = useMemo(() => {
     if (!isAlbumBased) return "";
@@ -477,7 +494,6 @@ export default function SubmitPage() {
         <label>
           Group
           <input
-            list="group-options"
             value={group}
             onChange={(e) => {
               setGroup(e.target.value);
@@ -487,11 +503,20 @@ export default function SubmitPage() {
             placeholder="e.g. TWICE"
             required
           />
-          <datalist id="group-options">
-            {groupOptions.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
+          {groupSuggestions.length > 0 ? (
+            <div className="option-list">
+              {groupSuggestions.map((name) => (
+                <button
+                  key={name}
+                  type="button"
+                  className="option-chip"
+                  onClick={() => setGroup(name)}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+          ) : null}
           {!hasGroupInCatalog && group.trim() ? (
             <button type="button" className="btn btn-ghost small" onClick={handleAddGroupToList}>
               Add group to list
@@ -502,17 +527,25 @@ export default function SubmitPage() {
         <label>
           Member
           <input
-            list="member-options"
             value={member}
             onChange={(e) => setMember(e.target.value)}
             placeholder="e.g. Sana"
             required
           />
-          <datalist id="member-options">
-            {memberOptions.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
+          {memberSuggestions.length > 0 ? (
+            <div className="option-list">
+              {memberSuggestions.map((name) => (
+                <button
+                  key={name}
+                  type="button"
+                  className="option-chip"
+                  onClick={() => setMember(name)}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+          ) : null}
           {!hasMemberInCatalog && group.trim() && member.trim() ? (
             <button type="button" className="btn btn-ghost small" onClick={handleAddMemberToList}>
               Add member to list
