@@ -233,7 +233,6 @@ export default function ScanPage() {
           <input
             type="file"
             accept="image/*"
-            capture="environment"
             onChange={(e) => setScanFile(e.target.files?.[0] || null)}
           />
         </label>

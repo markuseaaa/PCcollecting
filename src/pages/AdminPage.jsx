@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { ref, get, update } from "firebase/database";
 import { serverTimestamp } from "firebase/database";
-import { auth, db } from "../../firebase-config";
+import { deleteObject, ref as storageRef } from "firebase/storage";
+import { auth, db, storage } from "../../firebase-config";
 import { hasAdminClaim } from "../lib/adminAuth";
 import { formatRarityLabel } from "../lib/rarity";
 import StorageImage from "../components/StorageImage";
@@ -29,6 +30,19 @@ function toCatalogKey(value) {
     .toLowerCase()
     .replace(/[.#$/\[\]\u0000-\u001f\u007f]/g, "")
     .replace(/\s+/g, "-");
+}
+
+async function deleteStoragePathIfExists(path) {
+  const cleaned = String(path || "").trim();
+  if (!cleaned) return;
+
+  try {
+    await deleteObject(storageRef(storage, cleaned));
+  } catch (err) {
+    const code = String(err?.code || "");
+    if (code === "storage/object-not-found") return;
+    throw err;
+  }
 }
 
 export default function AdminPage() {
@@ -270,12 +284,21 @@ export default function AdminPage() {
     setError("");
 
     try {
+      const target = items.find((item) => item.id === itemId);
+      const imagePath = target?.imagePath || "";
+      const thumbPath = target?.thumbPath || "";
+
       const updates = {
         [`items/${itemId}`]: null,
       };
 
       const propagated = await buildPropagationUpdates(itemId, {}, "delete");
       Object.assign(updates, propagated);
+
+      await Promise.all([
+        deleteStoragePathIfExists(imagePath),
+        deleteStoragePathIfExists(thumbPath),
+      ]);
 
       await update(ref(db), updates);
       setItems((prev) => prev.filter((item) => item.id !== itemId));

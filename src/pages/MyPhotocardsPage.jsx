@@ -369,7 +369,6 @@ export default function MyPhotocardsPage() {
               <input
                 type="file"
                 accept="image/*"
-                capture="environment"
                 onChange={(e) => {
                   setCheckFile(e.target.files?.[0] || null);
                   setCheckMatches([]);

@@ -383,7 +383,6 @@ export default function SubmitPage() {
     if (!group.trim() || !member.trim()) {
       return setError("Group and member are required.");
     }
-    if (!photoFile) return setError("Upload a photocard image.");
     if (isAlbumBased && !resolvedAlbum) {
       return setError("Select an existing album or create a new one.");
     }
@@ -396,6 +395,90 @@ export default function SubmitPage() {
     if (!computedTitle) {
       return setError("Could not build title. Check member and rarity fields.");
     }
+
+    const normalizedInput = {
+      group: normalize(group),
+      member: normalize(member),
+      album: normalize(resolvedAlbum),
+      rarity: normalize(rarity),
+      sourceName: normalize(sourceName),
+      pobStore: normalize(formatPobStoreName(pobStore)),
+      version: normalize(version),
+      otherType: normalize(otherType),
+    };
+
+    const exactMatches = existingItems.filter((item) => {
+      return (
+        normalize(item.group) === normalizedInput.group &&
+        normalize(item.member) === normalizedInput.member &&
+        normalize(item.album) === normalizedInput.album &&
+        normalize(item.rarity) === normalizedInput.rarity &&
+        normalize(item.sourceName) === normalizedInput.sourceName &&
+        normalize(item.pobStore) === normalizedInput.pobStore &&
+        normalize(item.version) === normalizedInput.version &&
+        normalize(item.otherType) === normalizedInput.otherType
+      );
+    });
+
+    if (exactMatches.length > 0) {
+      const match = exactMatches[0];
+      const confirmUseExisting = window.confirm(
+        `A matching photocard already exists:\n\n${match.title || "Untitled"}\n\nUse this existing photocard instead of creating a new one?`
+      );
+
+      if (confirmUseExisting) {
+        try {
+          const currentItemsSnap = await get(dbRef(db, `users/${uid}/collectionItems`));
+          if (currentItemsSnap.exists()) {
+            let alreadyOwned = false;
+            currentItemsSnap.forEach((ch) => {
+              const val = ch.val() || {};
+              if (val.sourceItemId === match.id || ch.key === match.id) {
+                alreadyOwned = true;
+                return true;
+              }
+              return false;
+            });
+            if (alreadyOwned) {
+              return setError("You already have this photocard in My Photocards.");
+            }
+          }
+
+          const userItemRef = push(dbRef(db, `users/${uid}/collectionItems`));
+          const userItemId = userItemRef.key;
+          const now = serverTimestamp();
+          const updates = {};
+          updates[`users/${uid}/collectionItems/${userItemId}`] = {
+            id: userItemId,
+            sourceItemId: match.id,
+            collectionId: selectedCollectionId || "",
+            title: match.title || "",
+            group: match.group || "",
+            member: match.member || "",
+            album: match.album || "",
+            rarity: match.rarity || "",
+            sourceName: match.sourceName || "",
+            pobStore: match.pobStore || "",
+            otherType: match.otherType || "",
+            version: match.version || "",
+            imageUrl: match.imageUrl || "",
+            imagePath: match.imagePath || "",
+            thumbPath: match.thumbPath || "",
+            imgHash: match.imgHash || "",
+            createdAt: now,
+            updatedAt: now,
+          };
+          updates[`users/${uid}/collectionItems/_placeholder`] = true;
+          await update(dbRef(db), updates);
+          navigate(selectedCollectionId ? `/users/${uid}/collections/${selectedCollectionId}` : "/my-photocards");
+          return;
+        } catch (err) {
+          return setError(err?.message || "Could not add existing photocard.");
+        }
+      }
+    }
+
+    if (!photoFile) return setError("Upload a photocard image.");
 
     setLoading(true);
 
