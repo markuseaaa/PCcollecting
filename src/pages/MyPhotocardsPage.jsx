@@ -201,12 +201,12 @@ export default function MyPhotocardsPage() {
 
       const topMatches = ranked.slice(0, 3).filter((item) => item.similarity >= 20);
       if (topMatches.length === 0) {
-        setCheckMessage("Vi fandt ikke et sikkert match i dine photocards.");
+        setCheckMessage("No reliable match found in your photocards.");
         return;
       }
 
       setCheckMatches(topMatches);
-      setCheckMessage(`Vi har fundet ${topMatches.length} mulige matches i dine photocards.`);
+      setCheckMessage(`We found ${topMatches.length} possible matches in your photocards.`);
     } catch (err) {
       setCheckError(err?.message || "Could not check this image.");
     } finally {

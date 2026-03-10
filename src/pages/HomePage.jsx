@@ -42,7 +42,7 @@ export default function HomePage() {
           .map((k) => ({ id: k, ...val[k] }))
           .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
         setCollections(next);
-      })
+      }),
     );
 
     const itemRef = ref(db, `users/${uid}/collectionItems`);
@@ -55,7 +55,7 @@ export default function HomePage() {
           .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
         setItems(next);
         setLoading(false);
-      })
+      }),
     );
 
     get(ref(db, `users/${uid}/username`)).then((snap) => {
@@ -76,11 +76,10 @@ export default function HomePage() {
     <main className="page-content with-nav-space home-page">
       <section className="dashboard-hero">
         <h1>
-          Hi {username || "collector"}, your vault has {items.length} photocards.
+          Hi {username || "collector"}, you have {items.length} photocards.
         </h1>
         <p>
-          Keep track of member pulls and album versions across all your
-          binders.
+          Keep track of member pulls and album versions across all your binders.
         </p>
         <div className="dashboard-hero-actions">
           <Link to="/createcollection" className="btn btn-primary">
