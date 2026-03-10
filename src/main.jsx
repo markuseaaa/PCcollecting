@@ -38,7 +38,7 @@ class AppErrorBoundary extends Component {
 ReactDOM.createRoot(document.getElementById("root")).render(
   <StrictMode>
     <AppErrorBoundary>
-      <BrowserRouter basename={import.meta.env.DEV ? "/" : "/collectify/"}>
+      <BrowserRouter basename={import.meta.env.BASE_URL}>
         <App />
       </BrowserRouter>
     </AppErrorBoundary>
