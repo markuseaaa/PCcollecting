@@ -1,201 +1,111 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { ref as dbRef, push, update, serverTimestamp } from "firebase/database";
-import { auth, db } from "../../firebase-config";
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { auth, db, storage } from "../../firebase-config";
+import { buildResizedPath } from "../lib/imagePaths";
 import Nav from "../components/Nav";
 
 export default function CreateCollection() {
-  const [name, setName] = useState("");
-  const [type, setType] = useState("books");
-  const [coverUrl, setCoverUrl] = useState("");
-  const [imgOk, setImgOk] = useState(null);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [coverFile, setCoverFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
 
   const navigate = useNavigate();
-
-  const makeSlug = (raw) =>
-    String(raw || "")
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, "_")
-      .replace(/[^a-z0-9_]/g, "")
-      .slice(0, 20);
-
-  function validateName(n) {
-    const plain = String(n || "").trim();
-    if (plain.length < 3) {
-      return "Navnet skal være mindst 3 tegn.";
-    }
-    return null;
-  }
-
-  function validateUrl(u) {
-    const re = /^https:\/\/.+\.(jpg|jpeg|png|webp|gif|svg)(\?.*)?$/i;
-    return re.test((u || "").trim());
-  }
 
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
-    setSuccess("");
 
-    const v = validateName(name);
-    if (v) return setError(v);
-
-    if (!validateUrl(coverUrl)) {
-      return setError(
-        "Indsæt en gyldig HTTPS billed-URL (jpg/png/webp/gif/svg)."
-      );
-    }
-    if (imgOk === false) {
-      return setError("Billedet kunne ikke indlæses. Tjek URL’en.");
-    }
-
-    const user = auth.currentUser;
-    if (!user?.uid) {
-      return setError("Du skal være logget ind for at oprette en collection.");
-    }
-
-    const uid = user.uid;
-    const title = String(name).trim();
-    const slug = makeSlug(name);
-
-    if (!slug || slug.length < 3) {
-      return setError(
-        "Navnet skal indeholde mindst 3 bogstaver/tal (til slug)."
-      );
-    }
+    const uid = auth.currentUser?.uid;
+    if (!uid) return setError("You must be logged in.");
+    if (title.trim().length < 2) return setError("Collection title is too short.");
 
     setLoading(true);
     try {
-      const collectionsRef = dbRef(db, `users/${uid}/collections`);
-      const newRef = push(collectionsRef);
-      const collectionId = newRef.key;
+      const collectionRef = push(dbRef(db, `users/${uid}/collections`));
+      const collectionId = collectionRef.key;
       const now = serverTimestamp();
+
+      let coverImage = "";
+      let coverImagePath = "";
+      let coverThumbPath = "";
+      if (coverFile) {
+        const ext = coverFile.name.split(".").pop()?.toLowerCase() || "jpg";
+        coverImagePath = `users/${uid}/collections/${collectionId}/cover.${ext}`;
+        coverThumbPath = buildResizedPath(coverImagePath);
+        const fileRef = storageRef(storage, coverImagePath);
+        await uploadBytes(fileRef, coverFile, { contentType: coverFile.type });
+        coverImage = await getDownloadURL(fileRef);
+      }
 
       const updates = {};
       updates[`users/${uid}/collections/${collectionId}/id`] = collectionId;
-      updates[`users/${uid}/collections/${collectionId}/title`] = title;
-      updates[`users/${uid}/collections/${collectionId}/slug`] = slug;
-      updates[`users/${uid}/collections/${collectionId}/type`] = type;
-      updates[`users/${uid}/collections/${collectionId}/coverImage`] =
-        coverUrl.trim();
+      updates[`users/${uid}/collections/${collectionId}/title`] = title.trim();
+      updates[`users/${uid}/collections/${collectionId}/description`] =
+        description.trim();
+      updates[`users/${uid}/collections/${collectionId}/coverImage`] = coverImage;
+      updates[`users/${uid}/collections/${collectionId}/coverImagePath`] =
+        coverImagePath;
+      updates[`users/${uid}/collections/${collectionId}/coverThumbPath`] =
+        coverThumbPath;
       updates[`users/${uid}/collections/${collectionId}/createdAt`] = now;
       updates[`users/${uid}/collections/${collectionId}/updatedAt`] = now;
 
-      updates[`users/${uid}/collections/${collectionId}/title_lower`] =
-        title.toLowerCase();
-
-      updates[`users/${uid}/collectionItems/_placeholder`] = true;
-      updates[`users/${uid}/collectionItems/_placeholder`] = null;
-
       await update(dbRef(db), updates);
-
-      setSuccess("Collection oprettet!");
-      setName("");
-      setCoverUrl("");
-      setImgOk(null);
-
       navigate(`/users/${uid}/collections/${collectionId}`);
     } catch (err) {
-      console.error("CreateCollection error:", err);
-      setError(err?.message || "Noget gik galt ved oprettelsen.");
+      setError(err?.message || "Could not create collection.");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <main style={{ paddingBottom: 130 }}>
-      <h1 className="page-title">My next collection</h1>
+    <main className="page-content with-nav-space">
+      <section className="section-block">
+        <h1>Create collection</h1>
+        <p className="muted">Create a binder for one group, album, or member focus.</p>
 
-      <form onSubmit={handleSubmit} noValidate>
-        <div className="collection-btns">
-          <button
-            type="button"
-            onClick={() => setType("books")}
-            className={`collection-btn ${type === "books" ? "active" : ""}`}
-          >
-            Books
-          </button>
-          <button
-            type="button"
-            onClick={() => setType("vinyl")}
-            className={`collection-btn ${type === "vinyl" ? "active" : ""}`}
-          >
-            Vinyls
-          </button>
-          <button
-            type="button"
-            onClick={() => setType("albums")}
-            className={`collection-btn ${type === "albums" ? "active" : ""}`}
-          >
-            Albums
-          </button>
-        </div>
-
-        <div className="login-inputs login-form">
-          <p>Name collection</p>
-          <input
-            type="text"
-            placeholder="Enter name of collection"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            minLength={3}
-            required
-          />
-
-          <label className="cover-image-label">
-            Add cover image (paste URL)
+        <form className="form-grid" onSubmit={handleSubmit}>
+          <label>
+            Collection name
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. TWICE Album PCs"
+              required
+            />
           </label>
-          <input
-            type="url"
-            placeholder="https://example.com/cover.jpg"
-            value={coverUrl}
-            onChange={(e) => {
-              setCoverUrl(e.target.value);
-              setImgOk(null);
-            }}
-            onBlur={(e) => {
-              if (!validateUrl(e.target.value)) setImgOk(false);
-            }}
-            required
-          />
 
-          {coverUrl ? (
-            <div>
-              <p>Preview:</p>
-              <img
-                src={coverUrl}
-                alt="cover preview"
-                onLoad={() => setImgOk(true)}
-                onError={() => setImgOk(false)}
-                style={{ maxWidth: 240, borderRadius: 8 }}
-              />
-              {imgOk === false && (
-                <small style={{ color: "salmon" }}>
-                  Billedet kunne ikke indlæses – tjek URL’en eller filendelsen.
-                </small>
-              )}
-            </div>
-          ) : null}
-        </div>
+          <label>
+            Description
+            <input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="e.g. Korea album pulls only"
+            />
+          </label>
 
-        <div>
-          <button
-            className="get-started-btn create-collection-btn"
-            type="submit"
-            disabled={loading || imgOk === false}
-          >
-            {loading ? "Opretter..." : "Opret collection"}
+          <label>
+            Cover image (optional)
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => setCoverFile(e.target.files?.[0] || null)}
+            />
+          </label>
+
+          {error && <p className="error-text">{error}</p>}
+
+          <button className="btn btn-primary" disabled={loading} type="submit">
+            {loading ? "Creating..." : "Create collection"}
           </button>
-        </div>
+        </form>
+      </section>
 
-        {error && <div style={{ color: "red" }}>{error}</div>}
-        {success && <div style={{ color: "green" }}>{success}</div>}
-      </form>
       <Nav />
     </main>
   );

@@ -1,14 +1,9 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router";
-import {
-  signInWithEmailAndPassword,
-  sendPasswordResetEmail,
-  signInWithPopup,
-} from "firebase/auth";
-import { auth, googleProvider } from "../../firebase-config";
-import Google from "../assets/icons/google.svg";
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
+import { auth } from "../../firebase-config";
 
-export default function LogInd() {
+export default function Login() {
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [error, setError] = useState("");
@@ -22,21 +17,7 @@ export default function LogInd() {
     setLoading(true);
     try {
       await signInWithEmailAndPassword(auth, email.trim(), pw);
-      // Efter login -> HomePage
       navigate("/homepage", { replace: true });
-    } catch (err) {
-      setError(mapFirebaseError(err));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleGoogle() {
-    setError("");
-    setLoading(true);
-    try {
-      await signInWithPopup(auth, googleProvider);
-      navigate("/", { replace: true });
     } catch (err) {
       setError(mapFirebaseError(err));
     } finally {
@@ -63,13 +44,11 @@ export default function LogInd() {
     <div>
       <h2 className="login-title">Login</h2>
       <p className="login-subtitle">
-        Don&lsquo;t have an account? <Link to="/signup">Sign up</Link>
+        Don&apos;t have an account? <Link to="/signup">Sign up</Link>
       </p>
       <form className="login-form" onSubmit={handleLogin} noValidate>
         <div className="login-inputs">
-          <p>
-            Email <span className="gradient-text">*</span>
-          </p>
+          <p>Email</p>
           <input
             type="email"
             placeholder="Enter your email"
@@ -77,9 +56,7 @@ export default function LogInd() {
             onChange={(e) => setEmail(e.target.value)}
             required
           />
-          <p>
-            Password <span className="gradient-text">*</span>
-          </p>
+          <p>Password</p>
           <input
             type="password"
             placeholder="Enter your password"
@@ -95,18 +72,8 @@ export default function LogInd() {
 
         {error && <p className="login-error">{error}</p>}
 
-        <button className="get-started-btn" type="submit" disabled={loading}>
+        <button className="btn btn-primary" type="submit" disabled={loading}>
           {loading ? "Logging in..." : "Log in"}
-        </button>
-
-        <button
-          type="button"
-          className="login-btn"
-          onClick={handleGoogle}
-          disabled={loading}
-        >
-          Log ind med Google
-          <img src={Google} alt="Google ikon" className="google-icon" />
         </button>
       </form>
     </div>
@@ -118,8 +85,8 @@ function mapFirebaseError(error) {
   if (code.includes("invalid-email")) return "Invalid email format.";
   if (code.includes("user-not-found")) return "User not found.";
   if (code.includes("wrong-password")) return "Wrong password.";
-  if (code.includes("too-many-requests"))
+  if (code.includes("too-many-requests")) {
     return "Too many unsuccessful login attempts. Please try again later.";
-  if (code.includes("popup-closed-by-user")) return "Login cancelled.";
+  }
   return "Something went wrong. Please try again.";
 }

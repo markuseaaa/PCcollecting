@@ -1,21 +1,8 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router";
-import {
-  createUserWithEmailAndPassword,
-  updateProfile,
-  deleteUser,
-  signInWithPopup,
-} from "firebase/auth";
-import {
-  ref,
-  runTransaction,
-  get,
-  child,
-  serverTimestamp,
-  update,
-} from "firebase/database";
-import { auth, db, googleProvider } from "../../firebase-config";
-import Google from "../assets/icons/google.svg";
+import { createUserWithEmailAndPassword, updateProfile, deleteUser } from "firebase/auth";
+import { ref, runTransaction, serverTimestamp, update } from "firebase/database";
+import { auth, db } from "../../firebase-config";
 
 export default function Signup() {
   const [username, setUsername] = useState("");
@@ -36,8 +23,9 @@ export default function Signup() {
 
   function validate() {
     const u = sanitizeUsername(username);
-    if (!u || u.length < 3)
+    if (!u || u.length < 3) {
       return "Choose a username with at least 3 characters (a-z, 0-9 or _).";
+    }
     if (!email.trim()) return "Please enter a valid email.";
     if (pw.length < 6) return "Password must be at least 6 characters.";
     return null;
@@ -52,13 +40,13 @@ export default function Signup() {
     return res.committed && res.snapshot.val() === uid;
   }
 
-  async function createUserDoc(uid, { username, email }) {
+  async function createUserDoc(uid, { username: uname, email: userEmail }) {
     const now = serverTimestamp();
 
     await update(ref(db), {
       [`users/${uid}/uid`]: uid,
-      [`users/${uid}/username`]: username,
-      [`users/${uid}/email`]: email,
+      [`users/${uid}/username`]: uname,
+      [`users/${uid}/email`]: userEmail,
       [`users/${uid}/settings/language`]: "en",
       [`users/${uid}/settings/theme`]: "system",
       [`users/${uid}/settings/privacy`]: "friends",
@@ -71,7 +59,7 @@ export default function Signup() {
       [`users/${uid}/wishlist/_placeholder`]: true,
       [`users/${uid}/friends/_placeholder`]: true,
 
-      [`userIndex/usernames/${username}`]: uid,
+      [`userIndex/usernames/${uname}`]: uid,
     });
   }
 
@@ -94,10 +82,7 @@ export default function Signup() {
         try {
           await deleteUser(auth.currentUser);
         } catch (delErr) {
-          console.error(
-            "Cleanup failed (could not delete temporary user):",
-            delErr
-          );
+          console.error("Cleanup failed:", delErr);
         }
         throw { code: "username-already-in-use" };
       }
@@ -109,76 +94,8 @@ export default function Signup() {
       }
 
       await createUserDoc(uid, { username: usernameNorm, email: email.trim() });
-
-      navigate("/after-signup");
+      navigate("/homepage");
     } catch (err) {
-      console.error("Signup error:", err);
-      setError(mapFirebaseError(err));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleGoogleSignup() {
-    setError("");
-    setLoading(true);
-    try {
-      const cred = await signInWithPopup(auth, googleProvider);
-      const user = cred.user;
-      const uid = user.uid;
-
-      const usersSnap = await get(child(ref(db), `users/${uid}/username`));
-      if (!usersSnap.exists()) {
-        const base =
-          sanitizeUsername(
-            user.displayName || user.email?.split("@")[0] || "user"
-          ) || "user";
-        let candidate = base;
-        let tries = 0;
-        let reserved = false;
-
-        while (tries < 8 && !reserved) {
-          reserved = await reserveUsernameTx(candidate, uid);
-          if (!reserved) {
-            tries++;
-            candidate = `${base}${Math.floor(1000 + Math.random() * 9000)}`;
-          }
-        }
-        if (!reserved) {
-          candidate = uid.slice(0, 8);
-          const finalOk = await reserveUsernameTx(candidate, uid);
-          if (!finalOk)
-            throw new Error(
-              "Could not reserve any username for this Google account."
-            );
-        }
-
-        try {
-          await updateProfile(auth.currentUser, { displayName: candidate });
-        } catch (updErr) {
-          console.warn("Could not update displayName:", updErr);
-        }
-
-        await createUserDoc(uid, {
-          username: candidate,
-          email: user.email || "",
-        });
-      } else {
-        const uname = usersSnap.val();
-
-        await update(ref(db), {
-          [`userIndex/usernames/${uname}`]: uid,
-          [`users/${uid}/collections/_placeholder`]: true,
-          [`users/${uid}/collectionItems/_placeholder`]: true,
-          [`users/${uid}/favourites/_placeholder`]: true,
-          [`users/${uid}/wishlist/_placeholder`]: true,
-          [`users/${uid}/friends/_placeholder`]: true,
-        });
-      }
-
-      navigate("/after-signup");
-    } catch (err) {
-      console.error("Google signup error:", err);
       setError(mapFirebaseError(err));
     } finally {
       setLoading(false);
@@ -194,9 +111,7 @@ export default function Signup() {
 
       <form className="login-form" onSubmit={handleSignup} noValidate>
         <div className="login-inputs">
-          <p>
-            Username <span className="gradient-text">*</span>
-          </p>
+          <p>Username</p>
           <input
             type="text"
             placeholder="Enter a username"
@@ -206,9 +121,7 @@ export default function Signup() {
             required
           />
 
-          <p>
-            Email <span className="gradient-text">*</span>
-          </p>
+          <p>Email</p>
           <input
             type="email"
             placeholder="Enter your email"
@@ -217,9 +130,7 @@ export default function Signup() {
             required
           />
 
-          <p>
-            Password <span className="gradient-text">*</span>
-          </p>
+          <p>Password</p>
           <input
             type="password"
             placeholder="At least 6 characters"
@@ -231,22 +142,8 @@ export default function Signup() {
 
         {error && <p className="login-error">{error}</p>}
 
-        <button
-          className="get-started-btn create-btn"
-          type="submit"
-          disabled={loading}
-        >
+        <button className="btn btn-primary create-btn" type="submit" disabled={loading}>
           {loading ? "Creating..." : "Create account"}
-        </button>
-
-        <button
-          type="button"
-          className="login-btn google-btn"
-          onClick={handleGoogleSignup}
-          disabled={loading}
-        >
-          Sign up with Google
-          <img src={Google} alt="Google icon" className="google-icon" />
         </button>
       </form>
     </div>
@@ -255,13 +152,11 @@ export default function Signup() {
 
 function mapFirebaseError(error) {
   const code = String(error?.code || "");
-  if (code.includes("username-already-in-use"))
+  if (code.includes("username-already-in-use")) {
     return "That username is taken. Please try another.";
-  if (code.includes("auth/email-already-in-use"))
-    return "This email is already in use.";
+  }
+  if (code.includes("auth/email-already-in-use")) return "This email is already in use.";
   if (code.includes("auth/invalid-email")) return "Invalid email address.";
   if (code.includes("auth/weak-password")) return "Your password is too weak.";
-  if (code.includes("auth/popup-closed-by-user"))
-    return "Sign up was cancelled.";
   return "Something went wrong. Please try again.";
 }

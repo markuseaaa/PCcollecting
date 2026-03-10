@@ -1,18 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link } from "react-router";
 import { ref, get, remove } from "firebase/database";
 import { auth, db } from "../../firebase-config";
-import Nav from "../components/Nav";
 import StorageImage from "../components/StorageImage";
+import Nav from "../components/Nav";
 
 function norm(value) {
   return String(value || "").trim().toLowerCase();
 }
 
-export default function CollectionPage() {
-  const { collectionId } = useParams();
-  const [collection, setCollection] = useState(null);
+export default function MyPhotocardsPage() {
   const [items, setItems] = useState([]);
+  const [collectionMap, setCollectionMap] = useState({});
   const [query, setQuery] = useState("");
   const [memberFilter, setMemberFilter] = useState("");
   const [albumFilter, setAlbumFilter] = useState("");
@@ -34,29 +33,31 @@ export default function CollectionPage() {
       }
 
       try {
-        const colSnap = await get(ref(db, `users/${uid}/collections/${collectionId}`));
-        if (!colSnap.exists()) {
-          setError("Collection not found.");
-          setLoading(false);
-          return;
-        }
-
-        const itemSnap = await get(ref(db, `users/${uid}/collectionItems`));
-        const raw = itemSnap.exists() ? itemSnap.val() : {};
-        const nextItems = Object.keys(raw || {})
-          .filter((k) => !k.startsWith("_"))
-          .map((k) => ({ id: k, ...raw[k] }))
-          .filter((item) => item.collectionId === collectionId)
-          .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+        const [itemSnap, collectionSnap] = await Promise.all([
+          get(ref(db, `users/${uid}/collectionItems`)),
+          get(ref(db, `users/${uid}/collections`)),
+        ]);
 
         if (!alive) return;
-        setCollection(colSnap.val() || {});
-        setItems(nextItems);
-        setLoading(false);
+
+        const rawItems = itemSnap.exists() ? itemSnap.val() : {};
+        const list = Object.keys(rawItems || {})
+          .filter((k) => !k.startsWith("_"))
+          .map((k) => ({ id: k, ...rawItems[k] }));
+        setItems(list);
+
+        const rawCollections = collectionSnap.exists() ? collectionSnap.val() : {};
+        const map = {};
+        for (const key of Object.keys(rawCollections || {})) {
+          if (key.startsWith("_")) continue;
+          map[key] = rawCollections[key]?.title || "Untitled";
+        }
+        setCollectionMap(map);
       } catch (err) {
         if (!alive) return;
-        setError(err?.message || "Could not load collection.");
-        setLoading(false);
+        setError(err?.message || "Could not load your photocards.");
+      } finally {
+        if (alive) setLoading(false);
       }
     }
 
@@ -64,7 +65,7 @@ export default function CollectionPage() {
     return () => {
       alive = false;
     };
-  }, [collectionId]);
+  }, []);
 
   const memberOptions = useMemo(() => {
     const vals = new Set(items.map((item) => String(item.member || "").trim()).filter(Boolean));
@@ -92,6 +93,7 @@ export default function CollectionPage() {
       const matchesMember = !memberFilter || norm(item.member) === norm(memberFilter);
       const matchesAlbum = !albumFilter || norm(item.album) === norm(albumFilter);
       const matchesRarity = !rarityFilter || norm(item.rarity) === norm(rarityFilter);
+
       return matchesSearch && matchesMember && matchesAlbum && matchesRarity;
     });
 
@@ -112,12 +114,19 @@ export default function CollectionPage() {
     });
 
     return filtered;
-  }, [items, query, memberFilter, albumFilter, rarityFilter, sortBy]);
+  }, [
+    items,
+    query,
+    memberFilter,
+    albumFilter,
+    rarityFilter,
+    sortBy,
+  ]);
 
   async function handleRemove(itemId) {
     const uid = auth.currentUser?.uid;
     if (!uid) return;
-    if (!window.confirm("Remove this photocard from this collection?")) return;
+    if (!window.confirm("Remove this photocard from your collection?")) return;
 
     setRemovingId(itemId);
     try {
@@ -130,35 +139,15 @@ export default function CollectionPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <main className="page-content with-nav-space">
-        <p className="muted">Loading collection...</p>
-      </main>
-    );
-  }
-
-  if (error) {
-    return (
-      <main className="page-content with-nav-space">
-        <p className="error-text">{error}</p>
-        <Nav />
-      </main>
-    );
-  }
-
   const uid = auth.currentUser?.uid;
 
   return (
     <main className="page-content with-nav-space">
       <section className="section-heading-row">
         <div>
-          <h1>{collection?.title || "Collection"}</h1>
-          <p className="muted">{collection?.description || "Photocard binder"}</p>
+          <h1>My Photocards</h1>
+          <p className="muted">All your cards across every collection.</p>
         </div>
-        <Link to={`/submit?collectionId=${collectionId}`} className="btn btn-primary small">
-          Add new
-        </Link>
       </section>
 
       <section className="section-block">
@@ -167,7 +156,7 @@ export default function CollectionPage() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="member, group, title"
+            placeholder="member, album, type, title"
           />
         </label>
 
@@ -221,18 +210,25 @@ export default function CollectionPage() {
         </div>
       </section>
 
-      {filteredAndSorted.length === 0 && (
+      {loading && <p className="muted">Loading your cards...</p>}
+      {error && <p className="error-text">{error}</p>}
+
+      {!loading && !error && filteredAndSorted.length === 0 ? (
         <div className="empty-state">
-          <h2>No photocards yet</h2>
-          <p>Upload one to this collection.</p>
+          <h2>No matches</h2>
+          <p>Try changing your filters or add more cards.</p>
         </div>
-      )}
+      ) : null}
 
       <div className="card-grid">
         {filteredAndSorted.map((item) => (
           <article key={item.id} className="photo-card static">
             <Link
-              to={`/users/${uid}/collections/${collectionId}/items/${item.id}`}
+              to={
+                item.collectionId
+                  ? `/users/${uid}/collections/${item.collectionId}/items/${item.id}`
+                  : `/items/${item.id}`
+              }
               className="photo-card-link"
             >
               <StorageImage
@@ -248,6 +244,9 @@ export default function CollectionPage() {
                 <p className="photo-meta">
                   {item.album || item.sourceName || "Unknown source"}
                   {item.rarity ? ` • ${item.rarity}` : ""}
+                </p>
+                <p className="photo-meta">
+                  Collection: {collectionMap[item.collectionId] || "Unknown"}
                 </p>
               </div>
             </Link>
