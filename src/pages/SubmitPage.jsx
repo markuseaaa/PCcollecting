@@ -1,10 +1,11 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { ref as dbRef, get, push, update, serverTimestamp } from "firebase/database";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { auth, db, storage } from "../../firebase-config";
 import { buildResizedPath, DEFAULT_CARD_THUMB_SIZE } from "../lib/imagePaths";
 import { cropImageFileToBlob } from "../lib/imageCrop";
+import { computeAverageHashFromBlob } from "../lib/imageHash";
 import Nav from "../components/Nav";
 
 function normalize(str) {
@@ -37,6 +38,10 @@ export default function SubmitPage() {
   const [cropZoom, setCropZoom] = useState(1.15);
   const [cropX, setCropX] = useState(0);
   const [cropY, setCropY] = useState(0);
+  const [isDraggingCrop, setIsDraggingCrop] = useState(false);
+  const dragRef = useRef(null);
+  const pointersRef = useRef(new Map());
+  const pinchRef = useRef(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -62,7 +67,6 @@ export default function SubmitPage() {
         .filter((k) => !k.startsWith("_"))
         .map((k) => ({ id: k, ...colVal[k] }));
       setCollections(colList);
-      setSelectedCollectionId((prev) => prev || colList[0]?.id || "");
 
       const itemVal = globalItemsSnap.exists() ? globalItemsSnap.val() : {};
       const itemList = Object.keys(itemVal || {})
@@ -135,13 +139,95 @@ export default function SubmitPage() {
     return `${person} ${descriptor}`.trim();
   }, [member, rarity, resolvedAlbum, pobStore, sourceName]);
 
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function distanceBetweenPointers(a, b) {
+    const dx = a.x - b.x;
+    const dy = a.y - b.y;
+    return Math.hypot(dx, dy);
+  }
+
+  function applyZoomChange(nextZoom) {
+    setCropZoom(clamp(nextZoom, 1, 3));
+  }
+
+  function handleCropPointerDown(e) {
+    if (!cropEnabled) return;
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    dragRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      baseX: cropX,
+      baseY: cropY,
+    };
+    setIsDraggingCrop(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
+
+    if (pointersRef.current.size === 2) {
+      const [p1, p2] = [...pointersRef.current.values()];
+      pinchRef.current = {
+        startDistance: distanceBetweenPointers(p1, p2),
+        baseZoom: cropZoom,
+      };
+      setIsDraggingCrop(false);
+    }
+  }
+
+  function handleCropPointerMove(e) {
+    if (!cropEnabled) return;
+    if (pointersRef.current.has(e.pointerId)) {
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    if (pointersRef.current.size >= 2 && pinchRef.current) {
+      const [p1, p2] = [...pointersRef.current.values()];
+      const currentDistance = distanceBetweenPointers(p1, p2);
+      const ratio = currentDistance / pinchRef.current.startDistance;
+      applyZoomChange(pinchRef.current.baseZoom * ratio);
+      return;
+    }
+
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    setCropX(clamp(drag.baseX + dx, -260, 260));
+    setCropY(clamp(drag.baseY + dy, -360, 360));
+  }
+
+  function handleCropPointerUp(e) {
+    pointersRef.current.delete(e.pointerId);
+    if (pointersRef.current.size < 2) {
+      pinchRef.current = null;
+    }
+
+    const drag = dragRef.current;
+    if (drag && drag.pointerId === e.pointerId) {
+      dragRef.current = null;
+      setIsDraggingCrop(false);
+    }
+
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+  }
+
+  function handleCropWheel(e) {
+    if (!cropEnabled) return;
+    e.preventDefault();
+    applyZoomChange(cropZoom + (-e.deltaY * 0.0015));
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
 
     const uid = auth.currentUser?.uid;
     if (!uid) return setError("You must be logged in.");
-    if (!selectedCollectionId) return setError("Select a collection.");
     if (!group.trim() || !member.trim()) {
       return setError("Group and member are required.");
     }
@@ -185,6 +271,7 @@ export default function SubmitPage() {
 
       await uploadBytes(imageRef, uploadBlob, { contentType: mimeType });
       const imageUrl = await getDownloadURL(imageRef);
+      const imgHash = await computeAverageHashFromBlob(uploadBlob, 16);
 
       const now = serverTimestamp();
       const base = {
@@ -200,6 +287,7 @@ export default function SubmitPage() {
         imageUrl,
         imagePath,
         thumbPath,
+        imgHash,
         createdBy: uid,
         createdAt: now,
         updatedAt: now,
@@ -213,14 +301,14 @@ export default function SubmitPage() {
         ...base,
         id: userItemId,
         sourceItemId: itemId,
-        collectionId: selectedCollectionId,
+        collectionId: selectedCollectionId || "",
       };
 
       // Always publish to shared library so other users can find/add the card.
       updates[`items/${itemId}`] = base;
 
       await update(dbRef(db), updates);
-      navigate(`/users/${uid}/collections/${selectedCollectionId}`);
+      navigate(selectedCollectionId ? `/users/${uid}/collections/${selectedCollectionId}` : "/my-photocards");
     } catch (err) {
       setError(err?.message || "Could not upload photocard.");
     } finally {
@@ -251,12 +339,12 @@ export default function SubmitPage() {
         </label>
 
         <label>
-          Collection
+          Collection (optional)
           <select
             value={selectedCollectionId}
             onChange={(e) => setSelectedCollectionId(e.target.value)}
-            required
           >
+            <option value="">No collection (My Photocards only)</option>
             {collections.map((collection) => (
               <option key={collection.id} value={collection.id}>
                 {collection.title || "Untitled"}
@@ -375,7 +463,14 @@ export default function SubmitPage() {
 
         {previewUrl && (
           <div className="crop-panel">
-            <div className="crop-preview">
+            <div
+              className={`crop-preview ${isDraggingCrop ? "dragging" : ""}`}
+              onPointerDown={handleCropPointerDown}
+              onPointerMove={handleCropPointerMove}
+              onPointerUp={handleCropPointerUp}
+              onPointerCancel={handleCropPointerUp}
+              onWheel={handleCropWheel}
+            >
               <img
                 src={previewUrl}
                 alt="Crop preview"
@@ -394,44 +489,38 @@ export default function SubmitPage() {
               Crop to 3:4.5 card
             </label>
 
-            <label>
-              Zoom
-              <input
-                type="range"
-                min="1"
-                max="3"
-                step="0.01"
-                value={cropZoom}
-                onChange={(e) => setCropZoom(Number(e.target.value))}
+            <div className="crop-controls">
+              <button
+                type="button"
+                className="btn btn-ghost small"
+                onClick={() => applyZoomChange(cropZoom - 0.1)}
                 disabled={!cropEnabled}
-              />
-            </label>
-
-            <label>
-              Horizontal
-              <input
-                type="range"
-                min="-260"
-                max="260"
-                step="1"
-                value={cropX}
-                onChange={(e) => setCropX(Number(e.target.value))}
+              >
+                -
+              </button>
+              <span className="crop-zoom-label">Zoom {cropZoom.toFixed(2)}x</span>
+              <button
+                type="button"
+                className="btn btn-ghost small"
+                onClick={() => applyZoomChange(cropZoom + 0.1)}
                 disabled={!cropEnabled}
-              />
-            </label>
-
-            <label>
-              Vertical
-              <input
-                type="range"
-                min="-360"
-                max="360"
-                step="1"
-                value={cropY}
-                onChange={(e) => setCropY(Number(e.target.value))}
+              >
+                +
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost small"
+                onClick={() => {
+                  setCropZoom(1.15);
+                  setCropX(0);
+                  setCropY(0);
+                }}
                 disabled={!cropEnabled}
-              />
-            </label>
+              >
+                Reset
+              </button>
+            </div>
+            <p className="crop-hint muted">Drag to move. Pinch or scroll to zoom.</p>
           </div>
         )}
 

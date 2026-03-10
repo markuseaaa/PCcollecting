@@ -246,7 +246,7 @@ export default function MyPhotocardsPage() {
                   {item.rarity ? ` • ${item.rarity}` : ""}
                 </p>
                 <p className="photo-meta">
-                  Collection: {collectionMap[item.collectionId] || "Unknown"}
+                  Collection: {item.collectionId ? (collectionMap[item.collectionId] || "Unknown") : "Unassigned"}
                 </p>
               </div>
             </Link>

@@ -17,6 +17,7 @@ import DetailPage from "./pages/DetailPage";
 import ProfilePage from "./pages/ProfilePage";
 import MyPhotocardsPage from "./pages/MyPhotocardsPage";
 import AdminPage from "./pages/AdminPage";
+import ScanPage from "./pages/ScanPage";
 
 export default function App() {
   const stored = localStorage.getItem("isAuth");
@@ -76,6 +77,7 @@ export default function App() {
               element={<CollectionPage />}
             />
             <Route path="/additem" element={<AddItem />} />
+            <Route path="/scan" element={<ScanPage />} />
             <Route path="/my-photocards" element={<MyPhotocardsPage />} />
             <Route path="/submit" element={<SubmitPage />} />
             <Route path="/admin" element={<AdminPage />} />

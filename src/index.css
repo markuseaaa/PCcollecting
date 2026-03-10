@@ -27,8 +27,7 @@ body {
   color: var(--ink);
   background:
     radial-gradient(circle at 12% 0%, #ffe6cb 0%, transparent 40%),
-    radial-gradient(circle at 85% 10%, #ffd6c8 0%, transparent 32%),
-    var(--bg);
+    radial-gradient(circle at 85% 10%, #ffd6c8 0%, transparent 32%), var(--bg);
 }
 
 a {
@@ -177,7 +176,9 @@ p {
   font-weight: 700;
   padding: 0.72rem 1rem;
   cursor: pointer;
-  transition: transform 120ms ease, filter 120ms ease;
+  transition:
+    transform 120ms ease,
+    filter 120ms ease;
 }
 
 .btn:hover {
@@ -297,7 +298,13 @@ p {
   background: rgba(255, 255, 255, 0.7);
 }
 
-.card-grid,
+.card-grid {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
 .collection-grid {
   margin-top: 1rem;
   display: grid;
@@ -316,7 +323,7 @@ p {
 }
 
 .photo-card.static {
-  padding-bottom: 0.7rem;
+  padding-bottom: 0.5rem;
 }
 
 .photo-card-link {
@@ -335,13 +342,19 @@ p {
 .photo-card > div,
 .photo-card-link > div,
 .collection-tile > div {
-  padding: 0.65rem;
+  padding: 0.45rem;
   display: grid;
-  gap: 0.4rem;
+  gap: 0.3rem;
 }
 
 .card-actions {
-  padding: 0 0.65rem;
+  padding: 0 0.45rem;
+}
+
+.photo-card .btn.small {
+  width: 100%;
+  font-size: 0.68rem;
+  padding: 0.38rem 0.35rem;
 }
 
 .danger-btn {
@@ -369,12 +382,12 @@ p {
 }
 
 .photo-title {
-  font-size: 0.93rem;
+  font-size: 0.72rem;
   font-weight: 700;
 }
 
 .photo-meta {
-  font-size: 0.82rem;
+  font-size: 0.64rem;
   color: var(--muted);
 }
 
@@ -384,7 +397,7 @@ p {
 }
 
 .form-grid.compact {
-  margin-top: 0;
+  margin-top: 1rem;
 }
 
 label {
@@ -483,6 +496,8 @@ textarea:focus {
   margin-top: 0.8rem;
   display: flex;
   justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
 }
 
 .crop-panel {
@@ -503,6 +518,12 @@ textarea:focus {
   border: 1px solid var(--stroke);
   background: #fff;
   position: relative;
+  touch-action: none;
+  cursor: grab;
+}
+
+.crop-preview.dragging {
+  cursor: grabbing;
 }
 
 .crop-preview img {
@@ -510,6 +531,23 @@ textarea:focus {
   height: 100%;
   object-fit: cover;
   transform-origin: center;
+}
+
+.crop-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.crop-zoom-label {
+  font-size: 0.84rem;
+  color: var(--muted);
+  min-width: 6.5rem;
+}
+
+.crop-hint {
+  font-size: 0.8rem;
 }
 
 .bottom-nav {
@@ -662,6 +700,20 @@ textarea:focus {
     margin-top: 1.15rem;
   }
 
+  .add-item-actions .btn {
+    font-size: 0.78rem;
+    padding: 0.56rem 0.72rem;
+  }
+
+  .photo-title {
+    font-size: 0.64rem;
+    line-height: 1.2;
+  }
+
+  .photo-meta {
+    display: none;
+  }
+
   .bottom-nav {
     padding: 0.5rem 0.45rem;
     border-radius: 0.9rem;
@@ -708,7 +760,10 @@ textarea:focus {
     padding: 1.35rem;
   }
 
-  .card-grid,
+  .card-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
   .collection-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -738,7 +793,10 @@ textarea:focus {
 }
 
 @media (min-width: 1050px) {
-  .card-grid,
+  .card-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
   .collection-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }

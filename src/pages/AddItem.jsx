@@ -8,6 +8,7 @@ import StorageImage from "../components/StorageImage";
 export default function AddItem() {
   const [query, setQuery] = useState("");
   const [allItems, setAllItems] = useState([]);
+  const [ownedItemIds, setOwnedItemIds] = useState([]);
   const [collections, setCollections] = useState([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState("");
   const [addingId, setAddingId] = useState("");
@@ -26,9 +27,10 @@ export default function AddItem() {
       }
 
       try {
-        const [itemsSnap, collectionsSnap] = await Promise.all([
+        const [itemsSnap, collectionsSnap, ownedSnap] = await Promise.all([
           get(dbRef(db, "items")),
           get(dbRef(db, `users/${uid}/collections`)),
+          get(dbRef(db, `users/${uid}/collectionItems`)),
         ]);
 
         if (!alive) return;
@@ -45,7 +47,19 @@ export default function AddItem() {
           .filter((k) => !k.startsWith("_"))
           .map((k) => ({ id: k, ...colVal[k] }));
         setCollections(colList);
-        setSelectedCollectionId(colList[0]?.id || "");
+        setSelectedCollectionId("");
+
+        const ownedVal = ownedSnap.exists() ? ownedSnap.val() : {};
+        const owned = new Set();
+        for (const key of Object.keys(ownedVal || {})) {
+          if (key.startsWith("_")) continue;
+          const item = ownedVal[key] || {};
+          const sourceId = String(item.sourceItemId || "").trim();
+          const fallbackId = String(item.id || "").trim();
+          if (sourceId) owned.add(sourceId);
+          else if (fallbackId) owned.add(fallbackId);
+        }
+        setOwnedItemIds(Array.from(owned));
       } catch (err) {
         setError(err?.message || "Could not load data.");
       } finally {
@@ -61,13 +75,16 @@ export default function AddItem() {
 
   const results = useMemo(() => {
     const term = query.trim().toLowerCase();
-    if (!term) return allItems.slice(0, 40);
-    return allItems.filter((item) =>
+    const ownedSet = new Set(ownedItemIds.map((id) => String(id)));
+    const availableItems = allItems.filter((item) => !ownedSet.has(String(item.id)));
+
+    if (!term) return availableItems.slice(0, 40);
+    return availableItems.filter((item) =>
       `${item.title || ""} ${item.group || ""} ${item.member || ""} ${item.version || item.era || ""}`
         .toLowerCase()
         .includes(term)
     );
-  }, [allItems, query]);
+  }, [allItems, query, ownedItemIds]);
 
   async function addToCollection(item) {
     setError("");
@@ -75,7 +92,7 @@ export default function AddItem() {
 
     const uid = auth.currentUser?.uid;
     if (!uid) return setError("You must be logged in.");
-    if (!selectedCollectionId) return setError("Select a collection first.");
+    const targetCollectionId = selectedCollectionId || "";
 
     setAddingId(item.id);
     try {
@@ -84,17 +101,14 @@ export default function AddItem() {
         let duplicate = false;
         currentItemsSnap.forEach((ch) => {
           const val = ch.val() || {};
-          if (
-            val.sourceItemId === item.id &&
-            val.collectionId === selectedCollectionId
-          ) {
+          if (val.sourceItemId === item.id || ch.key === item.id) {
             duplicate = true;
             return true;
           }
           return false;
         });
         if (duplicate) {
-          setSuccess("Card is already in this collection.");
+          setSuccess("Card is already in your My Photocards.");
           setAddingId("");
           return;
         }
@@ -107,7 +121,7 @@ export default function AddItem() {
       const payload = {
         id: newId,
         sourceItemId: item.id,
-        collectionId: selectedCollectionId,
+        collectionId: targetCollectionId,
         title: item.title || "",
         group: item.group || "",
         member: item.member || "",
@@ -128,7 +142,12 @@ export default function AddItem() {
         [`users/${uid}/collectionItems/_placeholder`]: true,
       });
 
-      setSuccess("Photocard added to collection.");
+      setSuccess(
+        targetCollectionId
+          ? "Photocard added to collection."
+          : "Photocard added to My Photocards."
+      );
+      setOwnedItemIds((prev) => (prev.includes(item.id) ? prev : [...prev, item.id]));
     } catch (err) {
       setError(err?.message || "Could not add photocard.");
     } finally {
@@ -144,8 +163,11 @@ export default function AddItem() {
           Search first. If the card does not exist, create it once and everyone
           can add it.
         </p>
-        <div className="center-action">
-          <Link to="/submit" className="btn btn-primary">
+        <div className="center-action add-item-actions">
+          <Link to="/scan" className="btn btn-primary">
+            Scan photocard
+          </Link>
+          <Link to="/submit" className="btn btn-ghost">
             Card not found? Create new
           </Link>
         </div>
@@ -153,11 +175,12 @@ export default function AddItem() {
 
       <section className="section-block form-grid compact">
         <label>
-          Target collection
+          Target collection (optional)
           <select
             value={selectedCollectionId}
             onChange={(e) => setSelectedCollectionId(e.target.value)}
           >
+            <option value="">No collection (My Photocards only)</option>
             {collections.map((collection) => (
               <option key={collection.id} value={collection.id}>
                 {collection.title || "Untitled"}
@@ -200,9 +223,9 @@ export default function AddItem() {
               <button
                 className="btn btn-primary small"
                 onClick={() => addToCollection(item)}
-                disabled={addingId === item.id || !selectedCollectionId}
+                disabled={addingId === item.id}
               >
-                {addingId === item.id ? "Adding..." : "Add to collection"}
+                {addingId === item.id ? "Adding..." : "Add"}
               </button>
             </div>
           </article>
