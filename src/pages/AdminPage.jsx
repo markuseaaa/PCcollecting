@@ -147,6 +147,21 @@ export default function AdminPage() {
     );
   }, [groupCatalog]);
 
+  const groupCardCounts = useMemo(() => {
+    const counts = {};
+    for (const item of items) {
+      const groupName = String(item.group || "").trim();
+      if (!groupName) continue;
+      const normalizedGroup = normalize(groupName);
+      const matchedEntry = sortedGroupEntries.find(([key, value]) => {
+        return normalize(key) === normalizedGroup || normalize(value?.name) === normalizedGroup;
+      });
+      const bucket = matchedEntry ? matchedEntry[0] : normalizedGroup;
+      counts[bucket] = (counts[bucket] || 0) + 1;
+    }
+    return counts;
+  }, [items, sortedGroupEntries]);
+
   const selectedGroup = useMemo(() => {
     if (!selectedGroupKey) return null;
     return groupCatalog[selectedGroupKey] || null;
@@ -571,6 +586,13 @@ export default function AdminPage() {
         </div>
       </section>
 
+      <section className="stats-grid">
+        <article className="stat-card">
+          <p className="stat-label">Total photocards added</p>
+          <p className="stat-value">{items.length}</p>
+        </article>
+      </section>
+
       <section className="section-block">
         <label className="search-label">
           Search all cards
@@ -787,10 +809,11 @@ export default function AdminPage() {
         <ul className="member-list">
           {sortedGroupEntries.map(([key, value]) => {
             const members = Object.values(value?.members || {}).filter(Boolean);
+            const cardCount = groupCardCounts[key] || 0;
             return (
               <li key={key}>
                 <span>{value?.name || key}</span>
-                <strong>{members.length} members</strong>
+                <strong>{members.length} members • {cardCount} cards</strong>
               </li>
             );
           })}
