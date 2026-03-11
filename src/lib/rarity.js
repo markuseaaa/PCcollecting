@@ -4,6 +4,7 @@ export function formatRarityLabel(value) {
 
   if (raw === "pob") return "POB";
   if (raw === "lucky-draw") return "Lucky Draw";
+  if (raw === "concert") return "Concert";
   if (raw === "pop-up" || raw === "event") return "Pop-Up";
   if (raw === "seasons-greetings") return "Seasons Greetings";
   if (raw === "fanclub") return "Fanclub";

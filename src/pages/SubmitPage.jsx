@@ -275,6 +275,8 @@ export default function SubmitPage() {
       descriptor = sourceName.trim()
         ? `Lucky Draw ${sourceName.trim()}`
         : "Lucky Draw photocard";
+    } else if (rarity === "concert") {
+      descriptor = sourceName.trim() ? `Concert ${sourceName.trim()}` : "Concert photocard";
     } else if (rarity === "pop-up") {
       descriptor = sourceName.trim() ? `Pop-Up ${sourceName.trim()}` : "Pop-Up photocard";
     } else if (rarity === "seasons-greetings") {
@@ -670,6 +672,7 @@ export default function SubmitPage() {
           <select value={rarity} onChange={(e) => setRarity(e.target.value)}>
             <option value="album">Album</option>
             <option value="pob">POB</option>
+            <option value="concert">Concert</option>
             <option value="broadcast">Broadcast</option>
             <option value="lucky-draw">Lucky Draw</option>
             <option value="pop-up">Pop-Up</option>
@@ -819,6 +822,7 @@ export default function SubmitPage() {
         )}
 
         {(rarity === "broadcast" ||
+          rarity === "concert" ||
           rarity === "lucky-draw" ||
           rarity === "pop-up" ||
           rarity === "seasons-greetings" ||
@@ -826,6 +830,8 @@ export default function SubmitPage() {
           <label>
             {rarity === "broadcast"
               ? "Broadcast name"
+              : rarity === "concert"
+                ? "Concert name"
               : rarity === "lucky-draw"
                 ? "Lucky Draw source"
                 : rarity === "pop-up"
@@ -839,6 +845,8 @@ export default function SubmitPage() {
               placeholder={
                 rarity === "broadcast"
                   ? "e.g. Music Bank"
+                  : rarity === "concert"
+                    ? "e.g. World Tour Seoul"
                   : rarity === "lucky-draw"
                     ? "e.g. Soundwave round 2"
                     : rarity === "pop-up"
