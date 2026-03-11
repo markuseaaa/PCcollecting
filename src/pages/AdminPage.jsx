@@ -61,6 +61,7 @@ export default function AdminPage() {
   const [editingAlbumName, setEditingAlbumName] = useState("");
   const [selectedGroupKey, setSelectedGroupKey] = useState("");
   const [catalogSaving, setCatalogSaving] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(40);
 
   const [editingId, setEditingId] = useState("");
   const [form, setForm] = useState({
@@ -140,6 +141,15 @@ export default function AdminPage() {
       ).includes(term)
     );
   }, [items, query]);
+
+  const visibleItems = useMemo(
+    () => filtered.slice(0, visibleCount),
+    [filtered, visibleCount]
+  );
+
+  useEffect(() => {
+    setVisibleCount(40);
+  }, [query]);
 
   const sortedGroupEntries = useMemo(() => {
     return Object.entries(groupCatalog || {}).sort((a, b) =>
@@ -821,7 +831,7 @@ export default function AdminPage() {
       </section>
 
       <div className="card-grid">
-        {filtered.map((item) => {
+        {visibleItems.map((item) => {
           const isEditing = editingId === item.id;
           return (
             <article key={item.id} className="photo-card static admin-card">
@@ -955,6 +965,18 @@ export default function AdminPage() {
           );
         })}
       </div>
+
+      {visibleItems.length < filtered.length ? (
+        <div className="center-action">
+          <button
+            type="button"
+            className="btn btn-ghost small"
+            onClick={() => setVisibleCount((prev) => prev + 40)}
+          >
+            Load more
+          </button>
+        </div>
+      ) : null}
 
       <Nav />
     </main>
