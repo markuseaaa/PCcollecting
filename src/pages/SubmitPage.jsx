@@ -7,6 +7,7 @@ import { buildResizedPath, DEFAULT_CARD_THUMB_SIZE } from "../lib/imagePaths";
 import { cropImageFileToBlob } from "../lib/imageCrop";
 import { computeAverageHashFromBlob } from "../lib/imageHash";
 import { DEFAULT_POB_STORES, formatPobStoreName } from "../lib/pobStore";
+import StorageImage from "../components/StorageImage";
 import Nav from "../components/Nav";
 
 function normalize(str) {
@@ -76,6 +77,8 @@ export default function SubmitPage() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [duplicateCandidate, setDuplicateCandidate] = useState(null);
+  const [duplicateLoading, setDuplicateLoading] = useState(false);
 
   const isAlbumBased = rarity === "album" || rarity === "pob" || rarity === "lucky-draw";
 
@@ -378,110 +381,53 @@ export default function SubmitPage() {
     applyZoomChange(cropZoom + (-e.deltaY * 0.0015));
   }
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-    setError("");
-
-    const uid = auth.currentUser?.uid;
-    if (!uid) return setError("You must be logged in.");
-    if (!group.trim() || !member.trim()) {
-      return setError("Group and member are required.");
-    }
-    if (isAlbumBased && !resolvedAlbum) {
-      return setError("Select an existing album or create a new one.");
-    }
-    if (rarity === "pob" && !pobStore.trim()) {
-      return setError("Please add the POB store.");
-    }
-    if (rarity === "others" && !otherType.trim()) {
-      return setError("Please add what type this card is.");
-    }
-    if (!computedTitle) {
-      return setError("Could not build title. Check member and rarity fields.");
-    }
-
-    const normalizedInput = {
-      group: normalize(group),
-      member: normalize(member),
-      album: normalize(resolvedAlbum),
-      rarity: normalize(rarity),
-      sourceName: normalize(sourceName),
-      pobStore: normalize(formatPobStoreName(pobStore)),
-      version: normalize(version),
-      otherType: normalize(otherType),
-    };
-
-    const exactMatches = existingItems.filter((item) => {
-      return (
-        normalize(item.group) === normalizedInput.group &&
-        normalize(item.member) === normalizedInput.member &&
-        normalize(item.album) === normalizedInput.album &&
-        normalize(item.rarity) === normalizedInput.rarity &&
-        normalize(item.sourceName) === normalizedInput.sourceName &&
-        normalize(item.pobStore) === normalizedInput.pobStore &&
-        normalize(item.version) === normalizedInput.version &&
-        normalize(item.otherType) === normalizedInput.otherType
-      );
-    });
-
-    if (exactMatches.length > 0) {
-      const match = exactMatches[0];
-      const confirmUseExisting = window.confirm(
-        `A matching photocard already exists:\n\n${match.title || "Untitled"}\n\nUse this existing photocard instead of creating a new one?`
-      );
-
-      if (confirmUseExisting) {
-        try {
-          const currentItemsSnap = await get(dbRef(db, `users/${uid}/collectionItems`));
-          if (currentItemsSnap.exists()) {
-            let alreadyOwned = false;
-            currentItemsSnap.forEach((ch) => {
-              const val = ch.val() || {};
-              if (val.sourceItemId === match.id || ch.key === match.id) {
-                alreadyOwned = true;
-                return true;
-              }
-              return false;
-            });
-            if (alreadyOwned) {
-              return setError("You already have this photocard in My Photocards.");
-            }
-          }
-
-          const userItemRef = push(dbRef(db, `users/${uid}/collectionItems`));
-          const userItemId = userItemRef.key;
-          const now = serverTimestamp();
-          const updates = {};
-          updates[`users/${uid}/collectionItems/${userItemId}`] = {
-            id: userItemId,
-            sourceItemId: match.id,
-            collectionId: selectedCollectionId || "",
-            title: match.title || "",
-            group: match.group || "",
-            member: match.member || "",
-            album: match.album || "",
-            rarity: match.rarity || "",
-            sourceName: match.sourceName || "",
-            pobStore: match.pobStore || "",
-            otherType: match.otherType || "",
-            version: match.version || "",
-            imageUrl: match.imageUrl || "",
-            imagePath: match.imagePath || "",
-            thumbPath: match.thumbPath || "",
-            imgHash: match.imgHash || "",
-            createdAt: now,
-            updatedAt: now,
-          };
-          updates[`users/${uid}/collectionItems/_placeholder`] = true;
-          await update(dbRef(db), updates);
-          navigate(selectedCollectionId ? `/users/${uid}/collections/${selectedCollectionId}` : "/my-photocards");
-          return;
-        } catch (err) {
-          return setError(err?.message || "Could not add existing photocard.");
+  async function addExistingPhotocard(uid, match) {
+    const currentItemsSnap = await get(dbRef(db, `users/${uid}/collectionItems`));
+    if (currentItemsSnap.exists()) {
+      let alreadyOwned = false;
+      currentItemsSnap.forEach((ch) => {
+        const val = ch.val() || {};
+        if (val.sourceItemId === match.id || ch.key === match.id) {
+          alreadyOwned = true;
+          return true;
         }
+        return false;
+      });
+      if (alreadyOwned) {
+        throw new Error("You already have this photocard in My Photocards.");
       }
     }
 
+    const userItemRef = push(dbRef(db, `users/${uid}/collectionItems`));
+    const userItemId = userItemRef.key;
+    const now = serverTimestamp();
+    const updates = {};
+    updates[`users/${uid}/collectionItems/${userItemId}`] = {
+      id: userItemId,
+      sourceItemId: match.id,
+      collectionId: selectedCollectionId || "",
+      title: match.title || "",
+      group: match.group || "",
+      member: match.member || "",
+      album: match.album || "",
+      rarity: match.rarity || "",
+      sourceName: match.sourceName || "",
+      pobStore: match.pobStore || "",
+      otherType: match.otherType || "",
+      version: match.version || "",
+      imageUrl: match.imageUrl || "",
+      imagePath: match.imagePath || "",
+      thumbPath: match.thumbPath || "",
+      imgHash: match.imgHash || "",
+      createdAt: now,
+      updatedAt: now,
+    };
+    updates[`users/${uid}/collectionItems/_placeholder`] = true;
+    await update(dbRef(db), updates);
+    navigate(selectedCollectionId ? `/users/${uid}/collections/${selectedCollectionId}` : "/my-photocards");
+  }
+
+  async function createNewPhotocard(uid) {
     if (!photoFile) return setError("Upload a photocard image.");
 
     setLoading(true);
@@ -569,6 +515,88 @@ export default function SubmitPage() {
       setError(err?.message || "Could not upload photocard.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError("");
+
+    const uid = auth.currentUser?.uid;
+    if (!uid) return setError("You must be logged in.");
+    if (!group.trim() || !member.trim()) {
+      return setError("Group and member are required.");
+    }
+    if (isAlbumBased && !resolvedAlbum) {
+      return setError("Select an existing album or create a new one.");
+    }
+    if (rarity === "pob" && !pobStore.trim()) {
+      return setError("Please add the POB store.");
+    }
+    if (rarity === "others" && !otherType.trim()) {
+      return setError("Please add what type this card is.");
+    }
+    if (!computedTitle) {
+      return setError("Could not build title. Check member and rarity fields.");
+    }
+
+    const normalizedInput = {
+      group: normalize(group),
+      member: normalize(member),
+      album: normalize(resolvedAlbum),
+      rarity: normalize(rarity),
+      sourceName: normalize(sourceName),
+      pobStore: normalize(formatPobStoreName(pobStore)),
+      version: normalize(version),
+      otherType: normalize(otherType),
+    };
+
+    const exactMatches = existingItems.filter((item) => {
+      return (
+        normalize(item.group) === normalizedInput.group &&
+        normalize(item.member) === normalizedInput.member &&
+        normalize(item.album) === normalizedInput.album &&
+        normalize(item.rarity) === normalizedInput.rarity &&
+        normalize(item.sourceName) === normalizedInput.sourceName &&
+        normalize(item.pobStore) === normalizedInput.pobStore &&
+        normalize(item.version) === normalizedInput.version &&
+        normalize(item.otherType) === normalizedInput.otherType
+      );
+    });
+
+    if (exactMatches.length > 0) {
+      setDuplicateCandidate(exactMatches[0]);
+      return;
+    }
+
+    await createNewPhotocard(uid);
+  }
+
+  async function handleUseExistingDuplicate() {
+    const uid = auth.currentUser?.uid;
+    if (!uid || !duplicateCandidate) return;
+    setDuplicateLoading(true);
+    setError("");
+    try {
+      await addExistingPhotocard(uid, duplicateCandidate);
+      setDuplicateCandidate(null);
+    } catch (err) {
+      setError(err?.message || "Could not add existing photocard.");
+    } finally {
+      setDuplicateLoading(false);
+    }
+  }
+
+  async function handleCreateDuplicateAnyway() {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+    setDuplicateLoading(true);
+    setError("");
+    try {
+      await createNewPhotocard(uid);
+      setDuplicateCandidate(null);
+    } finally {
+      setDuplicateLoading(false);
     }
   }
 
@@ -978,6 +1006,61 @@ export default function SubmitPage() {
           {loading ? "Saving..." : "Add photocard"}
         </button>
       </form>
+
+      {duplicateCandidate ? (
+        <div className="modal-backdrop" onClick={() => setDuplicateCandidate(null)}>
+          <section className="modal-card" onClick={(ev) => ev.stopPropagation()}>
+            <h2>Possible Duplicate Found</h2>
+            <p className="muted">
+              We found a photocard with the same information. Is this the same card?
+            </p>
+
+            <article className="photo-card static">
+              <StorageImage
+                src={duplicateCandidate.imageUrl || duplicateCandidate.coverImage || ""}
+                thumbPath={duplicateCandidate.thumbPath}
+                alt={duplicateCandidate.title || "Photocard"}
+              />
+              <div>
+                <p className="photo-title">{duplicateCandidate.title || "Untitled"}</p>
+                <p className="photo-meta">
+                  {duplicateCandidate.group || "Unknown group"} - {duplicateCandidate.member || "Unknown"}
+                </p>
+                <p className="photo-meta">
+                  {duplicateCandidate.album || duplicateCandidate.sourceName || "Unknown source"}
+                </p>
+              </div>
+            </article>
+
+            <div className="center-action">
+              <button
+                type="button"
+                className="btn btn-primary small"
+                onClick={handleUseExistingDuplicate}
+                disabled={duplicateLoading}
+              >
+                Use existing photocard
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost small"
+                onClick={handleCreateDuplicateAnyway}
+                disabled={duplicateLoading}
+              >
+                Add as new anyway
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost small"
+                onClick={() => setDuplicateCandidate(null)}
+                disabled={duplicateLoading}
+              >
+                Cancel
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       <Nav />
     </main>
