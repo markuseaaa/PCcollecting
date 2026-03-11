@@ -72,6 +72,7 @@ export default function SubmitPage() {
   const dragRef = useRef(null);
   const pointersRef = useRef(new Map());
   const pinchRef = useRef(null);
+  const cropPreviewRef = useRef(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -490,10 +491,13 @@ export default function SubmitPage() {
       let ext;
 
       if (cropEnabled) {
+        const previewRect = cropPreviewRef.current?.getBoundingClientRect();
         uploadBlob = await cropImageFileToBlob(photoFile, {
           zoom: cropZoom,
           offsetX: cropX,
           offsetY: cropY,
+          previewWidth: previewRect?.width || 0,
+          previewHeight: previewRect?.height || 0,
         });
         mimeType = "image/jpeg";
         ext = "jpg";
@@ -899,6 +903,7 @@ export default function SubmitPage() {
           <div className="crop-panel">
             <div
               className={`crop-preview ${isDraggingCrop ? "dragging" : ""}`}
+              ref={cropPreviewRef}
               onPointerDown={handleCropPointerDown}
               onPointerMove={handleCropPointerMove}
               onPointerUp={handleCropPointerUp}

@@ -20,8 +20,14 @@ export async function cropImageFileToBlob(file, cropState, outType = "image/jpeg
     canvas.height = outH;
 
     const zoom = Number(cropState?.zoom || 1);
-    const offsetX = Number(cropState?.offsetX || 0);
-    const offsetY = Number(cropState?.offsetY || 0);
+    const rawOffsetX = Number(cropState?.offsetX || 0);
+    const rawOffsetY = Number(cropState?.offsetY || 0);
+    const previewW = Number(cropState?.previewWidth || outW);
+    const previewH = Number(cropState?.previewHeight || outH);
+
+    // Convert preview-space drag offsets (CSS pixels) to output-canvas pixels.
+    const offsetX = rawOffsetX * (outW / previewW);
+    const offsetY = rawOffsetY * (outH / previewH);
 
     const baseScale = Math.max(outW / img.width, outH / img.height);
     const scale = baseScale * zoom;
