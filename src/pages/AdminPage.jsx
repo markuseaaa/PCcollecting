@@ -28,7 +28,7 @@ function toCatalogKey(value) {
   return String(value || "")
     .trim()
     .toLowerCase()
-    .replace(/[.#$/\[\]\u0000-\u001f\u007f]/g, "")
+    .replace(/[.#$/[\]]/g, "")
     .replace(/\s+/g, "-");
 }
 
@@ -57,6 +57,7 @@ export default function AdminPage() {
   const [groupNameInput, setGroupNameInput] = useState("");
   const [memberInput, setMemberInput] = useState("");
   const [albumInput, setAlbumInput] = useState("");
+  const [versionInput, setVersionInput] = useState("");
   const [editingAlbumKey, setEditingAlbumKey] = useState("");
   const [editingAlbumName, setEditingAlbumName] = useState("");
   const [selectedGroupKey, setSelectedGroupKey] = useState("");
@@ -182,6 +183,7 @@ export default function AdminPage() {
       String(a[1] || "").localeCompare(String(b[1] || ""))
     );
   }, [selectedGroup]);
+  const selectedMembersLocked = Boolean(selectedGroup?.membersLocked);
 
   const selectedAlbums = useMemo(() => {
     if (!selectedGroupKey && !selectedGroup?.name) return [];
@@ -212,6 +214,13 @@ export default function AdminPage() {
     return Array.from(merged.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [selectedGroup, selectedGroupKey, items]);
 
+  const selectedVersions = useMemo(() => {
+    return Object.entries(selectedGroup?.versions || {})
+      .map(([key, name]) => ({ key, name: String(name || "").trim() }))
+      .filter((entry) => entry.name)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [selectedGroup]);
+
   function startEdit(item) {
     setEditingId(item.id);
     setForm({
@@ -227,9 +236,12 @@ export default function AdminPage() {
     });
   }
 
-  async function buildPropagationUpdates(itemId, patch, mode) {
+  async function buildPropagationUpdates(itemIdOrIds, patch, mode, fields = EDIT_FIELDS) {
     const usersSnap = await get(ref(db, "users"));
     const updates = {};
+    const sourceIds = Array.isArray(itemIdOrIds) ? itemIdOrIds : [itemIdOrIds];
+    const sourceSet = new Set(sourceIds.filter(Boolean));
+    if (sourceSet.size === 0) return updates;
 
     usersSnap.forEach((userCh) => {
       const uid = userCh.key;
@@ -238,14 +250,14 @@ export default function AdminPage() {
 
       collItemsCh.forEach((itemCh) => {
         const val = itemCh.val() || {};
-        const isMatch = val.sourceItemId === itemId || itemCh.key === itemId;
+        const isMatch = sourceSet.has(val.sourceItemId) || sourceSet.has(itemCh.key);
         if (!isMatch) return;
 
         const userItemPath = `users/${uid}/collectionItems/${itemCh.key}`;
         if (mode === "delete") {
           updates[userItemPath] = null;
         } else {
-          for (const field of EDIT_FIELDS) {
+          for (const field of fields) {
             updates[`${userItemPath}/${field}`] = patch[field] ?? "";
           }
           updates[`${userItemPath}/updatedAt`] = serverTimestamp();
@@ -355,7 +367,14 @@ export default function AdminPage() {
 
       setGroupCatalog((prev) => ({
         ...prev,
-        [key]: { name, members: {}, albums: {}, updatedAt: Date.now() },
+        [key]: {
+          name,
+          members: {},
+          albums: {},
+          versions: {},
+          membersLocked: false,
+          updatedAt: Date.now(),
+        },
       }));
       setSelectedGroupKey(key);
       setGroupNameInput(name);
@@ -373,6 +392,10 @@ export default function AdminPage() {
     const memberName = memberInput.trim();
     const memberKey = toCatalogKey(memberName);
     if (!groupKey || !memberName || !memberKey) return;
+    if (groupCatalog[groupKey]?.membersLocked) {
+      setError("Members are locked for this group.");
+      return;
+    }
 
     const groupName = groupCatalog[groupKey]?.name || groupInput.trim() || groupKey;
 
@@ -397,6 +420,10 @@ export default function AdminPage() {
           albums: {
             ...(prev[groupKey]?.albums || {}),
           },
+          versions: {
+            ...(prev[groupKey]?.versions || {}),
+          },
+          membersLocked: Boolean(prev[groupKey]?.membersLocked),
         },
       }));
       setSelectedGroupKey(groupKey);
@@ -431,6 +458,31 @@ export default function AdminPage() {
       }));
     } catch (err) {
       setError(err?.message || "Could not rename group.");
+    } finally {
+      setCatalogSaving(false);
+    }
+  }
+
+  async function handleToggleMembersLock() {
+    if (!selectedGroupKey) return;
+    setError("");
+    setCatalogSaving(true);
+    const nextLocked = !selectedMembersLocked;
+    try {
+      await update(ref(db), {
+        [`meta/groupCatalog/${selectedGroupKey}/membersLocked`]: nextLocked,
+        [`meta/groupCatalog/${selectedGroupKey}/updatedAt`]: serverTimestamp(),
+      });
+      setGroupCatalog((prev) => ({
+        ...prev,
+        [selectedGroupKey]: {
+          ...(prev[selectedGroupKey] || {}),
+          membersLocked: nextLocked,
+          updatedAt: Date.now(),
+        },
+      }));
+    } catch (err) {
+      setError(err?.message || "Could not update member lock.");
     } finally {
       setCatalogSaving(false);
     }
@@ -503,6 +555,10 @@ export default function AdminPage() {
     const newName = editingAlbumName.trim();
     const newKey = toCatalogKey(newName);
     if (!selectedGroupKey || !oldKey || !newName || !newKey) return;
+    const oldName = String(selectedGroup?.albums?.[oldKey] || "").trim();
+    const normalizedOldAlbum = normalize(oldName);
+    const normalizedGroupKey = normalize(selectedGroupKey);
+    const normalizedGroupName = normalize(selectedGroup?.name || "");
 
     setCatalogSaving(true);
     try {
@@ -513,6 +569,28 @@ export default function AdminPage() {
         updates[`meta/groupCatalog/${selectedGroupKey}/albums/${oldKey}`] = null;
       }
       updates[`meta/groupCatalog/${selectedGroupKey}/albums/${newKey}`] = newName;
+      const matchedItemIds = [];
+      for (const item of items) {
+        const groupNorm = normalize(item.group);
+        const albumNorm = normalize(item.album);
+        const groupMatch =
+          groupNorm && (groupNorm === normalizedGroupKey || groupNorm === normalizedGroupName);
+        if (!groupMatch || !normalizedOldAlbum || albumNorm !== normalizedOldAlbum) continue;
+        matchedItemIds.push(item.id);
+        updates[`items/${item.id}/album`] = newName;
+        updates[`items/${item.id}/updatedAt`] = serverTimestamp();
+      }
+
+      if (matchedItemIds.length > 0) {
+        const propagated = await buildPropagationUpdates(
+          matchedItemIds,
+          { album: newName },
+          "edit",
+          ["album"]
+        );
+        Object.assign(updates, propagated);
+      }
+
       await update(ref(db), updates);
 
       setGroupCatalog((prev) => {
@@ -528,6 +606,13 @@ export default function AdminPage() {
           },
         };
       });
+      if (matchedItemIds.length > 0) {
+        setItems((prev) =>
+          prev.map((item) =>
+            matchedItemIds.includes(item.id) ? { ...item, album: newName, updatedAt: Date.now() } : item
+          )
+        );
+      }
 
       setEditingAlbumKey("");
       setEditingAlbumName("");
@@ -562,6 +647,67 @@ export default function AdminPage() {
       });
     } catch (err) {
       setError(err?.message || "Could not remove album.");
+    } finally {
+      setCatalogSaving(false);
+    }
+  }
+
+  async function handleAddVersion() {
+    setError("");
+    const versionName = versionInput.trim();
+    const versionKey = toCatalogKey(versionName);
+    if (!selectedGroupKey || !versionName || !versionKey) return;
+
+    setCatalogSaving(true);
+    try {
+      await update(ref(db), {
+        [`meta/groupCatalog/${selectedGroupKey}/versions/${versionKey}`]: versionName,
+        [`meta/groupCatalog/${selectedGroupKey}/updatedAt`]: serverTimestamp(),
+      });
+
+      setGroupCatalog((prev) => ({
+        ...prev,
+        [selectedGroupKey]: {
+          ...(prev[selectedGroupKey] || {}),
+          versions: {
+            ...(prev[selectedGroupKey]?.versions || {}),
+            [versionKey]: versionName,
+          },
+          updatedAt: Date.now(),
+        },
+      }));
+      setVersionInput("");
+    } catch (err) {
+      setError(err?.message || "Could not add version.");
+    } finally {
+      setCatalogSaving(false);
+    }
+  }
+
+  async function handleRemoveVersion(versionKey) {
+    if (!selectedGroupKey || !versionKey) return;
+    setError("");
+    setCatalogSaving(true);
+    try {
+      await update(ref(db), {
+        [`meta/groupCatalog/${selectedGroupKey}/versions/${versionKey}`]: null,
+        [`meta/groupCatalog/${selectedGroupKey}/updatedAt`]: serverTimestamp(),
+      });
+
+      setGroupCatalog((prev) => {
+        const nextVersions = { ...(prev[selectedGroupKey]?.versions || {}) };
+        delete nextVersions[versionKey];
+        return {
+          ...prev,
+          [selectedGroupKey]: {
+            ...(prev[selectedGroupKey] || {}),
+            versions: nextVersions,
+            updatedAt: Date.now(),
+          },
+        };
+      });
+    } catch (err) {
+      setError(err?.message || "Could not remove version.");
     } finally {
       setCatalogSaving(false);
     }
@@ -673,6 +819,14 @@ export default function AdminPage() {
               placeholder="e.g. Between 1&2"
             />
           </label>
+          <label>
+            Version name
+            <input
+              value={versionInput}
+              onChange={(e) => setVersionInput(e.target.value)}
+              placeholder="e.g. Pathfinder ver."
+            />
+          </label>
         </div>
 
         <div className="center-action">
@@ -680,7 +834,12 @@ export default function AdminPage() {
             type="button"
             className="btn btn-primary small"
             onClick={handleAddMember}
-            disabled={catalogSaving || !(selectedGroupKey || groupInput.trim()) || !memberInput.trim()}
+            disabled={
+              catalogSaving ||
+              !(selectedGroupKey || groupInput.trim()) ||
+              !memberInput.trim() ||
+              selectedMembersLocked
+            }
           >
             Add member
           </button>
@@ -691,6 +850,14 @@ export default function AdminPage() {
             disabled={catalogSaving || !selectedGroupKey || !albumInput.trim()}
           >
             Add album
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost small"
+            onClick={handleAddVersion}
+            disabled={catalogSaving || !selectedGroupKey || !versionInput.trim()}
+          >
+            Add version
           </button>
         </div>
 
@@ -714,8 +881,19 @@ export default function AdminPage() {
                 >
                   Save group name
                 </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost small"
+                  onClick={handleToggleMembersLock}
+                  disabled={catalogSaving}
+                >
+                  {selectedMembersLocked ? "Unlock members" : "Lock members"}
+                </button>
               </div>
             </div>
+            {selectedMembersLocked ? (
+              <p className="muted">Members are locked. Users can only pick members already in this list.</p>
+            ) : null}
 
             <h3>Members in selected group</h3>
             {selectedMembers.length === 0 ? <p className="muted">No members yet.</p> : null}
@@ -780,6 +958,24 @@ export default function AdminPage() {
               ))}
             </ul>
 
+            <h3>Versions in selected group</h3>
+            {selectedVersions.length === 0 ? <p className="muted">No versions yet.</p> : null}
+            <ul className="member-list">
+              {selectedVersions.map((version) => (
+                <li key={version.key}>
+                  <span>{version.name}</span>
+                  <button
+                    type="button"
+                    className="btn btn-ghost small"
+                    onClick={() => handleRemoveVersion(version.key)}
+                    disabled={catalogSaving}
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+
             {editingAlbumKey ? (
               <div className="form-grid compact">
                 <label>
@@ -823,7 +1019,12 @@ export default function AdminPage() {
             return (
               <li key={key}>
                 <span>{value?.name || key}</span>
-                <strong>{members.length} members • {cardCount} cards</strong>
+                <strong>
+                  {members.length} members
+                  {value?.membersLocked ? " (locked)" : ""}
+                  {" • "}
+                  {cardCount} cards
+                </strong>
               </li>
             );
           })}

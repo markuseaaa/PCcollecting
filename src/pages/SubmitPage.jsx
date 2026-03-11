@@ -18,7 +18,7 @@ function toCatalogKey(value) {
   return String(value || "")
     .trim()
     .toLowerCase()
-    .replace(/[.#$/\[\]\u0000-\u001f\u007f]/g, "")
+    .replace(/[.#$/[\]]/g, "")
     .replace(/\s+/g, "-");
 }
 
@@ -38,6 +38,20 @@ function findCatalogGroupKey(catalog, groupValue) {
       normalize(value?.name) === needle || toCatalogKey(value?.name) === needleKey
   );
   return byName ? byName[0] : "";
+}
+
+function dedupeNamesCaseInsensitive(values) {
+  const canonical = new Map();
+  for (const raw of values) {
+    const name = String(raw || "").trim();
+    if (!name) continue;
+    const key = normalize(name);
+    if (!key) continue;
+    if (!canonical.has(key)) {
+      canonical.set(key, name);
+    }
+  }
+  return Array.from(canonical.values()).sort((a, b) => a.localeCompare(b));
 }
 
 export default function SubmitPage() {
@@ -80,7 +94,8 @@ export default function SubmitPage() {
   const [duplicateCandidate, setDuplicateCandidate] = useState(null);
   const [duplicateLoading, setDuplicateLoading] = useState(false);
 
-  const isAlbumBased = rarity === "album" || rarity === "pob" || rarity === "lucky-draw";
+  const isAlbumRequired = rarity === "album" || rarity === "pob" || rarity === "lucky-draw";
+  const supportsAlbumLink = isAlbumRequired || rarity === "pop-up";
 
   useEffect(() => {
     let alive = true;
@@ -146,6 +161,11 @@ export default function SubmitPage() {
     [groupCatalog, group]
   );
 
+  const selectedCatalogGroup = matchedCatalogGroupKey
+    ? groupCatalog[matchedCatalogGroupKey] || {}
+    : null;
+  const membersLocked = Boolean(selectedCatalogGroup?.membersLocked);
+
   const albumOptions = useMemo(() => {
     if (!normalizedGroup) return [];
 
@@ -160,9 +180,7 @@ export default function SubmitPage() {
       .map((item) => String(item.album || "").trim())
       .filter(Boolean);
 
-    return Array.from(new Set([...fromCatalog, ...fromItems])).sort((a, b) =>
-      a.localeCompare(b)
-    );
+    return dedupeNamesCaseInsensitive([...fromCatalog, ...fromItems]);
   }, [existingItems, normalizedGroup, groupCatalog, matchedCatalogGroupKey]);
 
   const groupOptions = useMemo(() => {
@@ -222,11 +240,45 @@ export default function SubmitPage() {
 
   const memberSuggestions = useMemo(() => {
     if (!normalizedGroup) return [];
-    if (!normalizedMember) return memberOptions.slice(0, 8);
-    return memberOptions
-      .filter((name) => normalize(name).includes(normalizedMember))
-      .slice(0, 8);
+    if (!normalizedMember) return memberOptions;
+    const filtered = memberOptions.filter((name) => normalize(name).includes(normalizedMember));
+    return filtered.length > 0 ? filtered : memberOptions;
   }, [memberOptions, normalizedGroup, normalizedMember]);
+
+  const versionOptions = useMemo(() => {
+    if (!normalizedGroup) return [];
+    const fromCatalog = matchedCatalogGroupKey
+      ? Object.values(groupCatalog[matchedCatalogGroupKey]?.versions || {})
+          .map((v) => String(v || "").trim())
+          .filter(Boolean)
+      : [];
+
+    const fromItems = existingItems
+      .filter((item) => normalize(item.group) === normalizedGroup)
+      .map((item) => String(item.version || "").trim())
+      .filter(Boolean);
+
+    return Array.from(new Set([...fromCatalog, ...fromItems])).sort((a, b) =>
+      a.localeCompare(b)
+    );
+  }, [groupCatalog, existingItems, normalizedGroup, matchedCatalogGroupKey]);
+
+  const normalizedVersion = normalize(version);
+  const hasVersionInCatalog = useMemo(() => {
+    if (!normalizedGroup || !normalizedVersion || !matchedCatalogGroupKey) return false;
+    const versions = Object.values(groupCatalog[matchedCatalogGroupKey]?.versions || {}).map((v) =>
+      normalize(v)
+    );
+    return versions.includes(normalizedVersion);
+  }, [groupCatalog, matchedCatalogGroupKey, normalizedGroup, normalizedVersion]);
+
+  const versionSuggestions = useMemo(() => {
+    if (!normalizedGroup) return [];
+    if (!normalizedVersion) return versionOptions.slice(0, 12);
+    return versionOptions
+      .filter((name) => normalize(name).includes(normalizedVersion))
+      .slice(0, 12);
+  }, [versionOptions, normalizedGroup, normalizedVersion]);
 
   const pobStoreOptions = useMemo(() => {
     const fromCatalog = Object.values(pobStoreCatalog || {})
@@ -254,10 +306,10 @@ export default function SubmitPage() {
   }, [pobStoreOptions, normalizedPobStore]);
 
   const resolvedAlbum = useMemo(() => {
-    if (!isAlbumBased) return "";
+    if (!supportsAlbumLink) return "";
     if (albumChoice === "__new") return newAlbumName.trim();
     return albumChoice.trim();
-  }, [isAlbumBased, albumChoice, newAlbumName]);
+  }, [supportsAlbumLink, albumChoice, newAlbumName]);
 
   const computedTitle = useMemo(() => {
     const person = member.trim();
@@ -282,7 +334,10 @@ export default function SubmitPage() {
     } else if (rarity === "concert") {
       descriptor = sourceName.trim() ? `Concert ${sourceName.trim()}` : "Concert photocard";
     } else if (rarity === "pop-up") {
-      descriptor = sourceName.trim() ? `Pop-Up ${sourceName.trim()}` : "Pop-Up photocard";
+      const base = resolvedAlbum ? `${resolvedAlbum} ` : "";
+      descriptor = sourceName.trim()
+        ? `${base}Pop-Up ${sourceName.trim()}`
+        : `${base}Pop-Up photocard`;
     } else if (rarity === "seasons-greetings") {
       descriptor = sourceName.trim()
         ? `Seasons Greetings ${sourceName.trim()}`
@@ -508,6 +563,16 @@ export default function SubmitPage() {
           updates[`meta/groupCatalog/${groupKey}/albums/${albumKey}`] = resolvedAlbum;
         }
       }
+      if (version.trim() && group.trim()) {
+        const groupKey = matchedCatalogGroupKey || toCatalogKey(group.trim());
+        const versionName = version.trim();
+        const versionKey = toCatalogKey(versionName);
+        if (groupKey && versionKey) {
+          updates[`meta/groupCatalog/${groupKey}/name`] =
+            groupCatalog[groupKey]?.name || group.trim();
+          updates[`meta/groupCatalog/${groupKey}/versions/${versionKey}`] = versionName;
+        }
+      }
 
       await update(dbRef(db), updates);
       navigate(selectedCollectionId ? `/users/${uid}/collections/${selectedCollectionId}` : "/my-photocards");
@@ -527,8 +592,11 @@ export default function SubmitPage() {
     if (!group.trim() || !member.trim()) {
       return setError("Group and member are required.");
     }
-    if (isAlbumBased && !resolvedAlbum) {
+    if (isAlbumRequired && !resolvedAlbum) {
       return setError("Select an existing album or create a new one.");
+    }
+    if (membersLocked && !hasMemberInCatalog) {
+      return setError("This group's member list is locked. Choose a member from the list.");
     }
     if (rarity === "pob" && !pobStore.trim()) {
       return setError("Please add the POB store.");
@@ -620,6 +688,9 @@ export default function SubmitPage() {
           name,
           updatedAt: Date.now(),
           members: prev[key]?.members || {},
+          albums: prev[key]?.albums || {},
+          versions: prev[key]?.versions || {},
+          membersLocked: Boolean(prev[key]?.membersLocked),
         },
       }));
     } catch (err) {
@@ -637,6 +708,7 @@ export default function SubmitPage() {
     if (!groupName || !memberName) return;
     if (!groupKey || !memberKey) return setError("Invalid group/member value.");
     if (hasMemberInCatalog) return;
+    if (membersLocked) return setError("Members are locked for this group.");
 
     try {
       const updates = {
@@ -656,10 +728,58 @@ export default function SubmitPage() {
             ...(prev[groupKey]?.members || {}),
             [memberKey]: memberName,
           },
+          albums: {
+            ...(prev[groupKey]?.albums || {}),
+          },
+          versions: {
+            ...(prev[groupKey]?.versions || {}),
+          },
         },
       }));
     } catch (err) {
       setError(err?.message || "Could not add member to list.");
+    }
+  }
+
+  async function handleAddVersionToList() {
+    setError("");
+    const groupName = group.trim();
+    const versionName = version.trim();
+    const groupKey = matchedCatalogGroupKey || toCatalogKey(groupName);
+    const versionKey = toCatalogKey(versionName);
+
+    if (!groupName || !versionName) return;
+    if (!groupKey || !versionKey) return setError("Invalid group/version value.");
+    if (hasVersionInCatalog) return;
+
+    try {
+      const updates = {
+        [`meta/groupCatalog/${groupKey}/name`]: groupName,
+        [`meta/groupCatalog/${groupKey}/versions/${versionKey}`]: versionName,
+        [`meta/groupCatalog/${groupKey}/updatedAt`]: serverTimestamp(),
+      };
+      await update(dbRef(db), updates);
+
+      setGroupCatalog((prev) => ({
+        ...prev,
+        [groupKey]: {
+          ...(prev[groupKey] || {}),
+          name: groupName,
+          updatedAt: Date.now(),
+          members: {
+            ...(prev[groupKey]?.members || {}),
+          },
+          albums: {
+            ...(prev[groupKey]?.albums || {}),
+          },
+          versions: {
+            ...(prev[groupKey]?.versions || {}),
+            [versionKey]: versionName,
+          },
+        },
+      }));
+    } catch (err) {
+      setError(err?.message || "Could not add version to list.");
     }
   }
 
@@ -764,7 +884,8 @@ export default function SubmitPage() {
           <input
             value={member}
             onChange={(e) => setMember(e.target.value)}
-            placeholder="e.g. Sana"
+            placeholder={membersLocked ? "Pick from suggestions below" : "e.g. Sana"}
+            readOnly={membersLocked}
             required
           />
           {memberSuggestions.length > 0 ? (
@@ -781,22 +902,22 @@ export default function SubmitPage() {
               ))}
             </div>
           ) : null}
-          {!hasMemberInCatalog && group.trim() && member.trim() ? (
+          {!membersLocked && !hasMemberInCatalog && group.trim() && member.trim() ? (
             <button type="button" className="btn btn-ghost small" onClick={handleAddMemberToList}>
               Add member to list
             </button>
           ) : null}
         </label>
 
-        {isAlbumBased && (
+        {supportsAlbumLink && (
           <label>
-            Album
+            Album {rarity === "pop-up" ? "(optional)" : ""}
             <select
               value={albumChoice}
               onChange={(e) => setAlbumChoice(e.target.value)}
-              required
+              required={isAlbumRequired}
             >
-              <option value="">Select album</option>
+              <option value="">{isAlbumRequired ? "Select album" : "No linked album"}</option>
               {albumOptions.map((name) => (
                 <option key={name} value={name}>
                   {name}
@@ -807,14 +928,14 @@ export default function SubmitPage() {
           </label>
         )}
 
-        {isAlbumBased && albumChoice === "__new" && (
+        {supportsAlbumLink && albumChoice === "__new" && (
           <label>
             New album name
             <input
               value={newAlbumName}
               onChange={(e) => setNewAlbumName(e.target.value)}
               placeholder="e.g. Between 1&2"
-              required
+              required={isAlbumRequired}
             />
           </label>
         )}
@@ -918,6 +1039,25 @@ export default function SubmitPage() {
               onChange={(e) => setVersion(e.target.value)}
               placeholder="e.g. Pathfinder ver."
             />
+            {versionSuggestions.length > 0 ? (
+              <div className="option-list">
+                {versionSuggestions.map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    className="option-chip"
+                    onClick={() => setVersion(name)}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {!hasVersionInCatalog && group.trim() && version.trim() ? (
+              <button type="button" className="btn btn-ghost small" onClick={handleAddVersionToList}>
+                Add version to list
+              </button>
+            ) : null}
           </label>
         )}
 
