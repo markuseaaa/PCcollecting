@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { ref, get, remove } from "firebase/database";
 import { auth, db } from "../../firebase-config";
 import { formatRarityLabel } from "../lib/rarity";
+import { cropImageFileToBlob } from "../lib/imageCrop";
 import {
   computeAverageHashFromBlob,
   computeCenteredAverageHashFromBlob,
@@ -35,6 +36,16 @@ export default function MyPhotocardsPage() {
   const [checkError, setCheckError] = useState("");
   const [checkMatches, setCheckMatches] = useState([]);
   const [checkMessage, setCheckMessage] = useState("");
+  const [checkCropEnabled, setCheckCropEnabled] = useState(true);
+  const [checkCropZoom, setCheckCropZoom] = useState(1.15);
+  const [checkCropX, setCheckCropX] = useState(0);
+  const [checkCropY, setCheckCropY] = useState(0);
+  const [isDraggingCheckCrop, setIsDraggingCheckCrop] = useState(false);
+  const checkCropPreviewRef = useRef(null);
+  const checkDragRef = useRef(null);
+  const checkPointersRef = useRef(new Map());
+  const checkPinchRef = useRef(null);
+  const [visibleCount, setVisibleCount] = useState(40);
 
   useEffect(() => {
     let alive = true;
@@ -148,6 +159,15 @@ export default function MyPhotocardsPage() {
     sortBy,
   ]);
 
+  const visibleItems = useMemo(
+    () => filteredAndSorted.slice(0, visibleCount),
+    [filteredAndSorted, visibleCount]
+  );
+
+  useEffect(() => {
+    setVisibleCount(40);
+  }, [query, memberFilter, albumFilter, rarityFilter, sortBy]);
+
   async function handleRemove(itemId) {
     const uid = auth.currentUser?.uid;
     if (!uid) return;
@@ -169,6 +189,87 @@ export default function MyPhotocardsPage() {
     return Math.max(0, Math.round((1 - distance / maxBits) * 100));
   }
 
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function applyCheckZoomChange(nextZoom) {
+    setCheckCropZoom(clamp(nextZoom, 1, 3));
+  }
+
+  function distanceBetweenPointers(a, b) {
+    const dx = a.x - b.x;
+    const dy = a.y - b.y;
+    return Math.hypot(dx, dy);
+  }
+
+  function handleCheckCropPointerDown(e) {
+    if (!checkCropEnabled) return;
+    checkPointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    checkDragRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      baseX: checkCropX,
+      baseY: checkCropY,
+    };
+    setIsDraggingCheckCrop(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
+
+    if (checkPointersRef.current.size === 2) {
+      const [p1, p2] = [...checkPointersRef.current.values()];
+      checkPinchRef.current = {
+        startDistance: distanceBetweenPointers(p1, p2),
+        baseZoom: checkCropZoom,
+      };
+      setIsDraggingCheckCrop(false);
+    }
+  }
+
+  function handleCheckCropPointerMove(e) {
+    if (!checkCropEnabled) return;
+    if (checkPointersRef.current.has(e.pointerId)) {
+      checkPointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    if (checkPointersRef.current.size >= 2 && checkPinchRef.current) {
+      const [p1, p2] = [...checkPointersRef.current.values()];
+      const currentDistance = distanceBetweenPointers(p1, p2);
+      const ratio = currentDistance / checkPinchRef.current.startDistance;
+      applyCheckZoomChange(checkPinchRef.current.baseZoom * ratio);
+      return;
+    }
+
+    const drag = checkDragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    setCheckCropX(clamp(drag.baseX + dx, -260, 260));
+    setCheckCropY(clamp(drag.baseY + dy, -360, 360));
+  }
+
+  function handleCheckCropPointerUp(e) {
+    checkPointersRef.current.delete(e.pointerId);
+    if (checkPointersRef.current.size < 2) checkPinchRef.current = null;
+
+    const drag = checkDragRef.current;
+    if (drag && drag.pointerId === e.pointerId) {
+      checkDragRef.current = null;
+      setIsDraggingCheckCrop(false);
+    }
+
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+  }
+
+  function handleCheckCropWheel(e) {
+    if (!checkCropEnabled) return;
+    e.preventDefault();
+    applyCheckZoomChange(checkCropZoom + -e.deltaY * 0.0015);
+  }
+
   async function handleCheck() {
     setCheckError("");
     setCheckMatches([]);
@@ -184,9 +285,21 @@ export default function MyPhotocardsPage() {
 
     setCheckLoading(true);
     try {
+      let checkBlob = checkFile;
+      if (checkCropEnabled) {
+        const previewRect = checkCropPreviewRef.current?.getBoundingClientRect();
+        checkBlob = await cropImageFileToBlob(checkFile, {
+          zoom: checkCropZoom,
+          offsetX: checkCropX,
+          offsetY: checkCropY,
+          previewWidth: previewRect?.width || 0,
+          previewHeight: previewRect?.height || 0,
+        });
+      }
+
       const [hashA, hashB] = await Promise.all([
-        computeAverageHashFromBlob(checkFile, 16),
-        computeCenteredAverageHashFromBlob(checkFile, 16, 2 / 3),
+        computeAverageHashFromBlob(checkBlob, 16),
+        computeCenteredAverageHashFromBlob(checkBlob, 16, 2 / 3),
       ]);
 
       const ranked = candidates
@@ -224,6 +337,10 @@ export default function MyPhotocardsPage() {
     setCheckError("");
     setCheckMatches([]);
     setCheckMessage("");
+    setCheckCropEnabled(true);
+    setCheckCropZoom(1.15);
+    setCheckCropX(0);
+    setCheckCropY(0);
   }
 
   const uid = auth.currentUser?.uid;
@@ -311,7 +428,7 @@ export default function MyPhotocardsPage() {
       ) : null}
 
       <div className="card-grid">
-        {filteredAndSorted.map((item) => (
+        {visibleItems.map((item) => (
           <article key={item.id} className="photo-card static">
             <Link
               to={
@@ -354,6 +471,18 @@ export default function MyPhotocardsPage() {
         ))}
       </div>
 
+      {!loading && visibleItems.length < filteredAndSorted.length ? (
+        <div className="center-action">
+          <button
+            type="button"
+            className="btn btn-ghost small"
+            onClick={() => setVisibleCount((prev) => prev + 40)}
+          >
+            Load more
+          </button>
+        </div>
+      ) : null}
+
       <Nav />
 
       {checkOpen ? (
@@ -381,8 +510,66 @@ export default function MyPhotocardsPage() {
             </label>
 
             {checkPreviewUrl ? (
-              <div className="preview-wrap">
-                <img src={checkPreviewUrl} alt="Check preview" className="preview-image" />
+              <div className="crop-panel">
+                <div
+                  className={`crop-preview ${isDraggingCheckCrop ? "dragging" : ""}`}
+                  ref={checkCropPreviewRef}
+                  onPointerDown={handleCheckCropPointerDown}
+                  onPointerMove={handleCheckCropPointerMove}
+                  onPointerUp={handleCheckCropPointerUp}
+                  onPointerCancel={handleCheckCropPointerUp}
+                  onWheel={handleCheckCropWheel}
+                >
+                  <img
+                    src={checkPreviewUrl}
+                    alt="Check preview"
+                    style={{
+                      transform: `translate(${checkCropX}px, ${checkCropY}px) scale(${checkCropZoom})`,
+                    }}
+                  />
+                </div>
+
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={checkCropEnabled}
+                    onChange={(e) => setCheckCropEnabled(e.target.checked)}
+                  />
+                  Crop before checking
+                </label>
+
+                <div className="crop-controls">
+                  <button
+                    type="button"
+                    className="btn btn-ghost small"
+                    onClick={() => applyCheckZoomChange(checkCropZoom - 0.1)}
+                    disabled={!checkCropEnabled}
+                  >
+                    -
+                  </button>
+                  <span className="crop-zoom-label">Zoom {checkCropZoom.toFixed(2)}x</span>
+                  <button
+                    type="button"
+                    className="btn btn-ghost small"
+                    onClick={() => applyCheckZoomChange(checkCropZoom + 0.1)}
+                    disabled={!checkCropEnabled}
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost small"
+                    onClick={() => {
+                      setCheckCropZoom(1.15);
+                      setCheckCropX(0);
+                      setCheckCropY(0);
+                    }}
+                    disabled={!checkCropEnabled}
+                  >
+                    Reset
+                  </button>
+                </div>
+                <p className="crop-hint muted">Drag to move. Pinch or scroll to zoom.</p>
               </div>
             ) : null}
 

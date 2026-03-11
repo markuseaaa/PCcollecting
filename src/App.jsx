@@ -12,6 +12,7 @@ import AllCollectionsPage from "./pages/AllCollectionsPage";
 import CreateCollection from "./pages/CreateCollection";
 import EditCollectionPage from "./pages/EditCollectionPage";
 import CollectionPage from "./pages/CollectionPage";
+import AddFromMyPhotocardsPage from "./pages/AddFromMyPhotocardsPage";
 import AddItem from "./pages/AddItem";
 import SubmitPage from "./pages/SubmitPage";
 import DetailPage from "./pages/DetailPage";
@@ -80,6 +81,10 @@ export default function App() {
             <Route
               path="/users/:uid/collections/:collectionId"
               element={<CollectionPage />}
+            />
+            <Route
+              path="/users/:uid/collections/:collectionId/add-existing"
+              element={<AddFromMyPhotocardsPage />}
             />
             <Route path="/additem" element={<AddItem />} />
             <Route path="/scan" element={<ScanPage />} />

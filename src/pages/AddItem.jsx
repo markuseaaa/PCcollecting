@@ -16,6 +16,7 @@ export default function AddItem() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(true);
+  const [visibleCount, setVisibleCount] = useState(40);
 
   useEffect(() => {
     let alive = true;
@@ -85,6 +86,15 @@ export default function AddItem() {
         .includes(term)
     );
   }, [allItems, query, ownedItemIds]);
+
+  const visibleResults = useMemo(
+    () => results.slice(0, visibleCount),
+    [results, visibleCount]
+  );
+
+  useEffect(() => {
+    setVisibleCount(40);
+  }, [query]);
 
   async function addToCollection(item) {
     setError("");
@@ -211,7 +221,7 @@ export default function AddItem() {
       ) : null}
 
       <div className="card-grid">
-        {results.map((item) => (
+        {visibleResults.map((item) => (
           <article key={item.id} className="photo-card static">
             <StorageImage
               src={item.imageUrl || item.coverImage || ""}
@@ -239,6 +249,18 @@ export default function AddItem() {
           </article>
         ))}
       </div>
+
+      {!loading && visibleResults.length < results.length ? (
+        <div className="center-action">
+          <button
+            type="button"
+            className="btn btn-ghost small"
+            onClick={() => setVisibleCount((prev) => prev + 40)}
+          >
+            Load more
+          </button>
+        </div>
+      ) : null}
 
       <Nav />
     </main>

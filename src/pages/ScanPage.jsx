@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { ref as dbRef, get, push, update, serverTimestamp } from "firebase/database";
 import { auth, db } from "../../firebase-config";
@@ -7,6 +7,7 @@ import {
   computeCenteredAverageHashFromBlob,
   hammingDistance,
 } from "../lib/imageHash";
+import { cropImageFileToBlob } from "../lib/imageCrop";
 import Nav from "../components/Nav";
 import StorageImage from "../components/StorageImage";
 
@@ -23,10 +24,19 @@ export default function ScanPage() {
   const [selectedCollectionId, setSelectedCollectionId] = useState("");
   const [scanFile, setScanFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState("");
+  const [cropEnabled, setCropEnabled] = useState(true);
+  const [cropZoom, setCropZoom] = useState(1.15);
+  const [cropX, setCropX] = useState(0);
+  const [cropY, setCropY] = useState(0);
+  const [isDraggingCrop, setIsDraggingCrop] = useState(false);
   const [matches, setMatches] = useState([]);
   const [scanning, setScanning] = useState(false);
   const [addingId, setAddingId] = useState("");
   const [error, setError] = useState("");
+  const cropPreviewRef = useRef(null);
+  const dragRef = useRef(null);
+  const pointersRef = useRef(new Map());
+  const pinchRef = useRef(null);
 
   useEffect(() => {
     let alive = true;
@@ -94,15 +104,105 @@ export default function ScanPage() {
     return () => URL.revokeObjectURL(url);
   }, [scanFile]);
 
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function applyZoomChange(nextZoom) {
+    setCropZoom(clamp(nextZoom, 1, 3));
+  }
+
+  function distanceBetweenPointers(a, b) {
+    const dx = a.x - b.x;
+    const dy = a.y - b.y;
+    return Math.hypot(dx, dy);
+  }
+
+  function handleCropPointerDown(e) {
+    if (!cropEnabled) return;
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    dragRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      baseX: cropX,
+      baseY: cropY,
+    };
+    setIsDraggingCrop(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
+
+    if (pointersRef.current.size === 2) {
+      const [p1, p2] = [...pointersRef.current.values()];
+      pinchRef.current = {
+        startDistance: distanceBetweenPointers(p1, p2),
+        baseZoom: cropZoom,
+      };
+      setIsDraggingCrop(false);
+    }
+  }
+
+  function handleCropPointerMove(e) {
+    if (!cropEnabled) return;
+    if (pointersRef.current.has(e.pointerId)) {
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    if (pointersRef.current.size >= 2 && pinchRef.current) {
+      const [p1, p2] = [...pointersRef.current.values()];
+      const currentDistance = distanceBetweenPointers(p1, p2);
+      const ratio = currentDistance / pinchRef.current.startDistance;
+      applyZoomChange(pinchRef.current.baseZoom * ratio);
+      return;
+    }
+
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    setCropX(clamp(drag.baseX + dx, -260, 260));
+    setCropY(clamp(drag.baseY + dy, -360, 360));
+  }
+
+  function handleCropPointerUp(e) {
+    pointersRef.current.delete(e.pointerId);
+    if (pointersRef.current.size < 2) pinchRef.current = null;
+    const drag = dragRef.current;
+    if (drag && drag.pointerId === e.pointerId) {
+      dragRef.current = null;
+      setIsDraggingCrop(false);
+    }
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+  }
+
+  function handleCropWheel(e) {
+    if (!cropEnabled) return;
+    e.preventDefault();
+    applyZoomChange(cropZoom + -e.deltaY * 0.0015);
+  }
+
   async function handleScan() {
     setError("");
     if (!scanFile) return setError("Choose a photo first.");
 
     setScanning(true);
     try {
+      let scanBlob = scanFile;
+      if (cropEnabled) {
+        const previewRect = cropPreviewRef.current?.getBoundingClientRect();
+        scanBlob = await cropImageFileToBlob(scanFile, {
+          zoom: cropZoom,
+          offsetX: cropX,
+          offsetY: cropY,
+          previewWidth: previewRect?.width || 0,
+          previewHeight: previewRect?.height || 0,
+        });
+      }
+
       const [hash, centeredHash, latestItems] = await Promise.all([
-        computeAverageHashFromBlob(scanFile, 16),
-        computeCenteredAverageHashFromBlob(scanFile, 16, 2 / 3),
+        computeAverageHashFromBlob(scanBlob, 16),
+        computeCenteredAverageHashFromBlob(scanBlob, 16, 2 / 3),
         refreshGlobalItems(),
       ]);
 
@@ -196,6 +296,9 @@ export default function ScanPage() {
       });
       setOwnedItemIds((prev) => (prev.includes(item.id) ? prev : [...prev, item.id]));
       setScanFile(null);
+      setCropZoom(1.15);
+      setCropX(0);
+      setCropY(0);
       setMatches([]);
       setError("");
     } catch (err) {
@@ -246,8 +349,66 @@ export default function ScanPage() {
         </div>
 
         {previewUrl ? (
-          <div className="preview-wrap">
-            <img src={previewUrl} alt="Scan preview" className="preview-image" />
+          <div className="crop-panel">
+            <div
+              className={`crop-preview ${isDraggingCrop ? "dragging" : ""}`}
+              ref={cropPreviewRef}
+              onPointerDown={handleCropPointerDown}
+              onPointerMove={handleCropPointerMove}
+              onPointerUp={handleCropPointerUp}
+              onPointerCancel={handleCropPointerUp}
+              onWheel={handleCropWheel}
+            >
+              <img
+                src={previewUrl}
+                alt="Scan preview"
+                style={{
+                  transform: `translate(${cropX}px, ${cropY}px) scale(${cropZoom})`,
+                }}
+              />
+            </div>
+
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={cropEnabled}
+                onChange={(e) => setCropEnabled(e.target.checked)}
+              />
+              Crop before scanning
+            </label>
+
+            <div className="crop-controls">
+              <button
+                type="button"
+                className="btn btn-ghost small"
+                onClick={() => applyZoomChange(cropZoom - 0.1)}
+                disabled={!cropEnabled}
+              >
+                -
+              </button>
+              <span className="crop-zoom-label">Zoom {cropZoom.toFixed(2)}x</span>
+              <button
+                type="button"
+                className="btn btn-ghost small"
+                onClick={() => applyZoomChange(cropZoom + 0.1)}
+                disabled={!cropEnabled}
+              >
+                +
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost small"
+                onClick={() => {
+                  setCropZoom(1.15);
+                  setCropX(0);
+                  setCropY(0);
+                }}
+                disabled={!cropEnabled}
+              >
+                Reset
+              </button>
+            </div>
+            <p className="crop-hint muted">Drag to move. Pinch or scroll to zoom.</p>
           </div>
         ) : null}
 

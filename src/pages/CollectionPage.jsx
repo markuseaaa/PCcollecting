@@ -164,8 +164,11 @@ export default function CollectionPage() {
           >
             Edit collection
           </Link>
-          <Link to={`/submit?collectionId=${collectionId}`} className="btn btn-primary small">
-            Add new
+          <Link
+            to={`/users/${uid}/collections/${collectionId}/add-existing`}
+            className="btn btn-primary small"
+          >
+            Add
           </Link>
         </div>
       </section>
