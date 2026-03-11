@@ -77,7 +77,7 @@ export default function SubmitPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const isAlbumBased = rarity === "album" || rarity === "pob";
+  const isAlbumBased = rarity === "album" || rarity === "pob" || rarity === "lucky-draw";
 
   useEffect(() => {
     let alive = true;
@@ -272,9 +272,10 @@ export default function SubmitPage() {
         ? `Broadcast ${sourceName.trim()}`
         : "Broadcast photocard";
     } else if (rarity === "lucky-draw") {
+      const base = resolvedAlbum || "Album";
       descriptor = sourceName.trim()
-        ? `Lucky Draw ${sourceName.trim()}`
-        : "Lucky Draw photocard";
+        ? `${base} Lucky Draw ${sourceName.trim()}`
+        : `${base} Lucky Draw photocard`;
     } else if (rarity === "concert") {
       descriptor = sourceName.trim() ? `Concert ${sourceName.trim()}` : "Concert photocard";
     } else if (rarity === "pop-up") {
