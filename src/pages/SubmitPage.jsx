@@ -247,21 +247,48 @@ export default function SubmitPage() {
 
   const versionOptions = useMemo(() => {
     if (!normalizedGroup) return [];
-    const fromCatalog = matchedCatalogGroupKey
-      ? Object.values(groupCatalog[matchedCatalogGroupKey]?.versions || {})
-          .map((v) => String(v || "").trim())
-          .filter(Boolean)
-      : [];
+    const albumNorm = normalize(resolvedAlbum);
+    const albumScoped = supportsAlbumLink && Boolean(albumNorm);
+
+    const fromCatalogAlbumScoped =
+      albumScoped && matchedCatalogGroupKey
+        ? Object.values(
+            groupCatalog[matchedCatalogGroupKey]?.albumVersions?.[toCatalogKey(resolvedAlbum)] || {}
+          )
+            .map((v) => String(v || "").trim())
+            .filter(Boolean)
+        : [];
+
+    const fromCatalogGroup =
+      !supportsAlbumLink && matchedCatalogGroupKey
+        ? Object.values(groupCatalog[matchedCatalogGroupKey]?.versions || {})
+            .map((v) => String(v || "").trim())
+            .filter(Boolean)
+        : [];
 
     const fromItems = existingItems
-      .filter((item) => normalize(item.group) === normalizedGroup)
+      .filter((item) => {
+        if (normalize(item.group) !== normalizedGroup) return false;
+        if (!supportsAlbumLink) return true;
+        if (!albumNorm) return false;
+        return normalize(item.album) === albumNorm;
+      })
       .map((item) => String(item.version || "").trim())
       .filter(Boolean);
 
-    return Array.from(new Set([...fromCatalog, ...fromItems])).sort((a, b) =>
-      a.localeCompare(b)
-    );
-  }, [groupCatalog, existingItems, normalizedGroup, matchedCatalogGroupKey]);
+    return dedupeNamesCaseInsensitive([
+      ...fromCatalogAlbumScoped,
+      ...fromCatalogGroup,
+      ...fromItems,
+    ]);
+  }, [
+    groupCatalog,
+    existingItems,
+    normalizedGroup,
+    matchedCatalogGroupKey,
+    resolvedAlbum,
+    supportsAlbumLink,
+  ]);
 
   const normalizedVersion = normalize(version);
   const hasVersionInCatalog = useMemo(() => {
@@ -571,6 +598,13 @@ export default function SubmitPage() {
           updates[`meta/groupCatalog/${groupKey}/name`] =
             groupCatalog[groupKey]?.name || group.trim();
           updates[`meta/groupCatalog/${groupKey}/versions/${versionKey}`] = versionName;
+          if (resolvedAlbum) {
+            const albumKey = toCatalogKey(resolvedAlbum);
+            if (albumKey) {
+              updates[`meta/groupCatalog/${groupKey}/albumVersions/${albumKey}/${versionKey}`] =
+                versionName;
+            }
+          }
         }
       }
 
@@ -758,6 +792,13 @@ export default function SubmitPage() {
         [`meta/groupCatalog/${groupKey}/versions/${versionKey}`]: versionName,
         [`meta/groupCatalog/${groupKey}/updatedAt`]: serverTimestamp(),
       };
+      if (resolvedAlbum) {
+        const albumKey = toCatalogKey(resolvedAlbum);
+        if (albumKey) {
+          updates[`meta/groupCatalog/${groupKey}/albumVersions/${albumKey}/${versionKey}`] =
+            versionName;
+        }
+      }
       await update(dbRef(db), updates);
 
       setGroupCatalog((prev) => ({
@@ -776,6 +817,17 @@ export default function SubmitPage() {
             ...(prev[groupKey]?.versions || {}),
             [versionKey]: versionName,
           },
+          albumVersions: resolvedAlbum
+            ? {
+                ...(prev[groupKey]?.albumVersions || {}),
+                [toCatalogKey(resolvedAlbum)]: {
+                  ...(prev[groupKey]?.albumVersions?.[toCatalogKey(resolvedAlbum)] || {}),
+                  [versionKey]: versionName,
+                },
+              }
+            : {
+                ...(prev[groupKey]?.albumVersions || {}),
+              },
         },
       }));
     } catch (err) {
