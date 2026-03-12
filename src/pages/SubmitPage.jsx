@@ -245,6 +245,12 @@ export default function SubmitPage() {
     return filtered.length > 0 ? filtered : memberOptions;
   }, [memberOptions, normalizedGroup, normalizedMember]);
 
+  const resolvedAlbum = useMemo(() => {
+    if (!supportsAlbumLink) return "";
+    if (albumChoice === "__new") return newAlbumName.trim();
+    return albumChoice.trim();
+  }, [supportsAlbumLink, albumChoice, newAlbumName]);
+
   const versionOptions = useMemo(() => {
     if (!normalizedGroup) return [];
     const albumNorm = normalize(resolvedAlbum);
@@ -331,12 +337,6 @@ export default function SubmitPage() {
       .filter((name) => normalize(name).includes(normalizedPobStore))
       .slice(0, 8);
   }, [pobStoreOptions, normalizedPobStore]);
-
-  const resolvedAlbum = useMemo(() => {
-    if (!supportsAlbumLink) return "";
-    if (albumChoice === "__new") return newAlbumName.trim();
-    return albumChoice.trim();
-  }, [supportsAlbumLink, albumChoice, newAlbumName]);
 
   const computedTitle = useMemo(() => {
     const person = member.trim();
