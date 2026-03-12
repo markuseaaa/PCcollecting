@@ -651,6 +651,31 @@ textarea:focus {
   gap: 0.45rem;
 }
 
+.duplicate-results-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.duplicate-result-card {
+  max-width: 220px;
+  justify-self: center;
+  width: 100%;
+}
+
+.duplicate-result-card .photo-title {
+  font-size: 0.66rem;
+  min-height: 2em;
+}
+
+.duplicate-result-card .photo-meta {
+  font-size: 0.6rem;
+}
+
+.duplicate-result-card .btn.small {
+  margin-top: 0.2rem;
+}
+
 .bottom-nav {
   position: fixed;
   left: 50%;
@@ -827,6 +852,10 @@ textarea:focus {
 
   .check-result-card .photo-title {
     font-size: 0.58rem;
+  }
+
+  .duplicate-results-grid {
+    grid-template-columns: 1fr;
   }
 
   .photo-meta {

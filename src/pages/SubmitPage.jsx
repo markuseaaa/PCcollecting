@@ -91,7 +91,7 @@ export default function SubmitPage() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [duplicateCandidate, setDuplicateCandidate] = useState(null);
+  const [duplicateCandidates, setDuplicateCandidates] = useState([]);
   const [duplicateLoading, setDuplicateLoading] = useState(false);
 
   const isAlbumRequired = rarity === "album" || rarity === "pob" || rarity === "lucky-draw";
@@ -667,21 +667,21 @@ export default function SubmitPage() {
     });
 
     if (exactMatches.length > 0) {
-      setDuplicateCandidate(exactMatches[0]);
+      setDuplicateCandidates(exactMatches);
       return;
     }
 
     await createNewPhotocard(uid);
   }
 
-  async function handleUseExistingDuplicate() {
+  async function handleUseSpecificDuplicate(match) {
     const uid = auth.currentUser?.uid;
-    if (!uid || !duplicateCandidate) return;
+    if (!uid || !match) return;
     setDuplicateLoading(true);
     setError("");
     try {
-      await addExistingPhotocard(uid, duplicateCandidate);
-      setDuplicateCandidate(null);
+      await addExistingPhotocard(uid, match);
+      setDuplicateCandidates([]);
     } catch (err) {
       setError(err?.message || "Could not add existing photocard.");
     } finally {
@@ -696,7 +696,7 @@ export default function SubmitPage() {
     setError("");
     try {
       await createNewPhotocard(uid);
-      setDuplicateCandidate(null);
+      setDuplicateCandidates([]);
     } finally {
       setDuplicateLoading(false);
     }
@@ -1199,40 +1199,44 @@ export default function SubmitPage() {
         </button>
       </form>
 
-      {duplicateCandidate ? (
-        <div className="modal-backdrop" onClick={() => setDuplicateCandidate(null)}>
+      {duplicateCandidates.length > 0 ? (
+        <div className="modal-backdrop" onClick={() => setDuplicateCandidates([])}>
           <section className="modal-card" onClick={(ev) => ev.stopPropagation()}>
             <h2>Possible Duplicate Found</h2>
             <p className="muted">
-              We found a photocard with the same information. Is this the same card?
+              We found matching photocards. Choose one to add, or add your card as a new duplicate.
             </p>
 
-            <article className="photo-card static">
-              <StorageImage
-                src={duplicateCandidate.imageUrl || duplicateCandidate.coverImage || ""}
-                thumbPath={duplicateCandidate.thumbPath}
-                alt={duplicateCandidate.title || "Photocard"}
-              />
-              <div>
-                <p className="photo-title">{duplicateCandidate.title || "Untitled"}</p>
-                <p className="photo-meta">
-                  {duplicateCandidate.group || "Unknown group"} - {duplicateCandidate.member || "Unknown"}
-                </p>
-                <p className="photo-meta">
-                  {duplicateCandidate.album || duplicateCandidate.sourceName || "Unknown source"}
-                </p>
-              </div>
-            </article>
+            <div className="duplicate-results-grid">
+              {duplicateCandidates.map((candidate) => (
+                <article key={candidate.id} className="photo-card static duplicate-result-card">
+                  <StorageImage
+                    src={candidate.imageUrl || candidate.coverImage || ""}
+                    thumbPath={candidate.thumbPath}
+                    alt={candidate.title || "Photocard"}
+                  />
+                  <div>
+                    <p className="photo-title">{candidate.title || "Untitled"}</p>
+                    <p className="photo-meta">
+                      {candidate.group || "Unknown group"} - {candidate.member || "Unknown"}
+                    </p>
+                    <p className="photo-meta">
+                      {candidate.album || candidate.sourceName || "Unknown source"}
+                    </p>
+                    <button
+                      type="button"
+                      className="btn btn-primary small"
+                      onClick={() => handleUseSpecificDuplicate(candidate)}
+                      disabled={duplicateLoading}
+                    >
+                      Use this one
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
 
             <div className="center-action">
-              <button
-                type="button"
-                className="btn btn-primary small"
-                onClick={handleUseExistingDuplicate}
-                disabled={duplicateLoading}
-              >
-                Use existing photocard
-              </button>
               <button
                 type="button"
                 className="btn btn-ghost small"
@@ -1244,7 +1248,7 @@ export default function SubmitPage() {
               <button
                 type="button"
                 className="btn btn-ghost small"
-                onClick={() => setDuplicateCandidate(null)}
+                onClick={() => setDuplicateCandidates([])}
                 disabled={duplicateLoading}
               >
                 Cancel
