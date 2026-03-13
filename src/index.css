@@ -617,6 +617,11 @@ textarea:focus {
   cursor: pointer;
 }
 
+.option-chip.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, #fff);
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

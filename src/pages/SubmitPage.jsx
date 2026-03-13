@@ -9,6 +9,7 @@ import { computeAverageHashFromBlob } from "../lib/imageHash";
 import { DEFAULT_POB_STORES, formatPobStoreName } from "../lib/pobStore";
 import StorageImage from "../components/StorageImage";
 import Nav from "../components/Nav";
+const UNIT_MEMBER_NAME = "Unit";
 
 function normalize(str) {
   return String(str || "").trim().toLowerCase();
@@ -54,6 +55,14 @@ function dedupeNamesCaseInsensitive(values) {
   return Array.from(canonical.values()).sort((a, b) => a.localeCompare(b));
 }
 
+function normalizeUnitMembers(values) {
+  if (!Array.isArray(values)) return [];
+  const normalized = values
+    .map((value) => normalize(value))
+    .filter(Boolean);
+  return Array.from(new Set(normalized)).sort((a, b) => a.localeCompare(b));
+}
+
 export default function SubmitPage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
@@ -76,6 +85,7 @@ export default function SubmitPage() {
   const [pobStore, setPobStore] = useState("");
   const [otherType, setOtherType] = useState("");
   const [version, setVersion] = useState("");
+  const [unitMembers, setUnitMembers] = useState([]);
 
   const [photoFile, setPhotoFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState("");
@@ -96,6 +106,7 @@ export default function SubmitPage() {
 
   const isAlbumRequired = rarity === "album" || rarity === "pob" || rarity === "lucky-draw";
   const supportsAlbumLink = isAlbumRequired || rarity === "pop-up";
+  const showVersionSuggestions = rarity === "album" || rarity === "pob";
 
   useEffect(() => {
     let alive = true;
@@ -151,7 +162,6 @@ export default function SubmitPage() {
   }, [photoFile]);
 
   useEffect(() => {
-    if (rarity === "pob") setVersion("");
     if (rarity !== "others") setOtherType("");
   }, [rarity]);
 
@@ -245,6 +255,21 @@ export default function SubmitPage() {
     return filtered.length > 0 ? filtered : memberOptions;
   }, [memberOptions, normalizedGroup, normalizedMember]);
 
+  const selectableUnitMembers = useMemo(
+    () => memberOptions.filter((name) => normalize(name) !== "unit"),
+    [memberOptions]
+  );
+  const requiresUnitMembers = normalize(member) === "unit" && selectableUnitMembers.length > 2;
+
+  useEffect(() => {
+    if (!requiresUnitMembers) {
+      setUnitMembers([]);
+      return;
+    }
+    const allowed = new Set(selectableUnitMembers.map((name) => normalize(name)));
+    setUnitMembers((prev) => prev.filter((name) => allowed.has(normalize(name))));
+  }, [requiresUnitMembers, selectableUnitMembers]);
+
   const resolvedAlbum = useMemo(() => {
     if (!supportsAlbumLink) return "";
     if (albumChoice === "__new") return newAlbumName.trim();
@@ -253,52 +278,25 @@ export default function SubmitPage() {
 
   const versionOptions = useMemo(() => {
     if (!normalizedGroup) return [];
-    const albumNorm = normalize(resolvedAlbum);
-    const albumScoped = supportsAlbumLink && Boolean(albumNorm);
-
-    const fromCatalogAlbumScoped =
-      albumScoped && matchedCatalogGroupKey
-        ? Object.values(
-            groupCatalog[matchedCatalogGroupKey]?.albumVersions?.[toCatalogKey(resolvedAlbum)] || {}
-          )
-            .map((v) => String(v || "").trim())
-            .filter(Boolean)
-        : [];
-
-    const fromCatalogGroup =
-      !supportsAlbumLink && matchedCatalogGroupKey
-        ? Object.values(groupCatalog[matchedCatalogGroupKey]?.versions || {})
-            .map((v) => String(v || "").trim())
-            .filter(Boolean)
-        : [];
+    const fromCatalog = matchedCatalogGroupKey
+      ? Object.values(groupCatalog[matchedCatalogGroupKey]?.versions || {})
+          .map((v) => String(v || "").trim())
+          .filter(Boolean)
+      : [];
 
     const fromItems = existingItems
-      .filter((item) => {
-        if (normalize(item.group) !== normalizedGroup) return false;
-        if (!supportsAlbumLink) return true;
-        if (!albumNorm) return false;
-        return normalize(item.album) === albumNorm;
-      })
+      .filter((item) => normalize(item.group) === normalizedGroup)
       .map((item) => String(item.version || "").trim())
       .filter(Boolean);
 
-    return dedupeNamesCaseInsensitive([
-      ...fromCatalogAlbumScoped,
-      ...fromCatalogGroup,
-      ...fromItems,
-    ]);
-  }, [
-    groupCatalog,
-    existingItems,
-    normalizedGroup,
-    matchedCatalogGroupKey,
-    resolvedAlbum,
-    supportsAlbumLink,
-  ]);
+    return dedupeNamesCaseInsensitive([...fromCatalog, ...fromItems]);
+  }, [groupCatalog, existingItems, normalizedGroup, matchedCatalogGroupKey]);
 
   const normalizedVersion = normalize(version);
   const hasVersionInCatalog = useMemo(() => {
-    if (!normalizedGroup || !normalizedVersion || !matchedCatalogGroupKey) return false;
+    if (!normalizedGroup || !normalizedVersion || !matchedCatalogGroupKey) {
+      return false;
+    }
     const versions = Object.values(groupCatalog[matchedCatalogGroupKey]?.versions || {}).map((v) =>
       normalize(v)
     );
@@ -339,7 +337,10 @@ export default function SubmitPage() {
   }, [pobStoreOptions, normalizedPobStore]);
 
   const computedTitle = useMemo(() => {
-    const person = member.trim();
+    const person =
+      requiresUnitMembers && unitMembers.length > 0
+        ? `${unitMembers.join(" + ")} Unit`
+        : member.trim();
     if (!person) return "";
 
     let descriptor = "";
@@ -359,7 +360,7 @@ export default function SubmitPage() {
         ? `${base} Lucky Draw ${sourceName.trim()}`
         : `${base} Lucky Draw photocard`;
     } else if (rarity === "concert") {
-      descriptor = sourceName.trim() ? `Concert ${sourceName.trim()}` : "Concert photocard";
+      descriptor = sourceName.trim() ? `Concert/Tour ${sourceName.trim()}` : "Concert/Tour photocard";
     } else if (rarity === "pop-up") {
       const base = resolvedAlbum ? `${resolvedAlbum} ` : "";
       descriptor = sourceName.trim()
@@ -371,6 +372,12 @@ export default function SubmitPage() {
         : "Seasons Greetings photocard";
     } else if (rarity === "fanclub") {
       descriptor = sourceName.trim() ? `Fanclub ${sourceName.trim()}` : "Fanclub photocard";
+    } else if (rarity === "collaboration") {
+      descriptor = sourceName.trim()
+        ? `Collaboration ${sourceName.trim()}`
+        : "Collaboration photocard";
+    } else if (rarity === "merchandise") {
+      descriptor = sourceName.trim() ? `Merchandise ${sourceName.trim()}` : "Merchandise photocard";
     } else if (rarity === "others") {
       descriptor = otherType.trim()
         ? `${otherType.trim()}${sourceName.trim() ? ` ${sourceName.trim()}` : ""}`
@@ -378,7 +385,7 @@ export default function SubmitPage() {
     }
 
     return `${person} ${descriptor}`.trim();
-  }, [member, rarity, resolvedAlbum, pobStore, sourceName, otherType]);
+  }, [member, rarity, resolvedAlbum, pobStore, sourceName, otherType, requiresUnitMembers, unitMembers]);
 
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
@@ -491,6 +498,7 @@ export default function SubmitPage() {
       title: match.title || "",
       group: match.group || "",
       member: match.member || "",
+      unitMembers: Array.isArray(match.unitMembers) ? match.unitMembers : [],
       album: match.album || "",
       rarity: match.rarity || "",
       sourceName: match.sourceName || "",
@@ -553,6 +561,7 @@ export default function SubmitPage() {
         title: computedTitle,
         group: group.trim(),
         member: member.trim(),
+        unitMembers: requiresUnitMembers ? [...unitMembers] : [],
         album: resolvedAlbum,
         rarity,
         sourceName: sourceName.trim(),
@@ -584,9 +593,11 @@ export default function SubmitPage() {
       if (resolvedAlbum && group.trim()) {
         const groupKey = matchedCatalogGroupKey || toCatalogKey(group.trim());
         const albumKey = toCatalogKey(resolvedAlbum);
+        const unitKey = toCatalogKey(UNIT_MEMBER_NAME);
         if (groupKey && albumKey) {
           updates[`meta/groupCatalog/${groupKey}/name`] =
             groupCatalog[groupKey]?.name || group.trim();
+          updates[`meta/groupCatalog/${groupKey}/members/${unitKey}`] = UNIT_MEMBER_NAME;
           updates[`meta/groupCatalog/${groupKey}/albums/${albumKey}`] = resolvedAlbum;
         }
       }
@@ -594,17 +605,12 @@ export default function SubmitPage() {
         const groupKey = matchedCatalogGroupKey || toCatalogKey(group.trim());
         const versionName = version.trim();
         const versionKey = toCatalogKey(versionName);
+        const unitKey = toCatalogKey(UNIT_MEMBER_NAME);
         if (groupKey && versionKey) {
           updates[`meta/groupCatalog/${groupKey}/name`] =
             groupCatalog[groupKey]?.name || group.trim();
+          updates[`meta/groupCatalog/${groupKey}/members/${unitKey}`] = UNIT_MEMBER_NAME;
           updates[`meta/groupCatalog/${groupKey}/versions/${versionKey}`] = versionName;
-          if (resolvedAlbum) {
-            const albumKey = toCatalogKey(resolvedAlbum);
-            if (albumKey) {
-              updates[`meta/groupCatalog/${groupKey}/albumVersions/${albumKey}/${versionKey}`] =
-                versionName;
-            }
-          }
         }
       }
 
@@ -632,6 +638,9 @@ export default function SubmitPage() {
     if (membersLocked && !hasMemberInCatalog) {
       return setError("This group's member list is locked. Choose a member from the list.");
     }
+    if (requiresUnitMembers && unitMembers.length < 2) {
+      return setError("Choose at least 2 members for the unit.");
+    }
     if (rarity === "pob" && !pobStore.trim()) {
       return setError("Please add the POB store.");
     }
@@ -642,6 +651,7 @@ export default function SubmitPage() {
       return setError("Could not build title. Check member and rarity fields.");
     }
 
+    const normalizedUnit = normalizeUnitMembers(unitMembers).join("|");
     const normalizedInput = {
       group: normalize(group),
       member: normalize(member),
@@ -651,6 +661,7 @@ export default function SubmitPage() {
       pobStore: normalize(formatPobStoreName(pobStore)),
       version: normalize(version),
       otherType: normalize(otherType),
+      unitMembers: normalizedUnit,
     };
 
     const exactMatches = existingItems.filter((item) => {
@@ -662,7 +673,8 @@ export default function SubmitPage() {
         normalize(item.sourceName) === normalizedInput.sourceName &&
         normalize(item.pobStore) === normalizedInput.pobStore &&
         normalize(item.version) === normalizedInput.version &&
-        normalize(item.otherType) === normalizedInput.otherType
+        normalize(item.otherType) === normalizedInput.otherType &&
+        normalizeUnitMembers(item.unitMembers).join("|") === normalizedInput.unitMembers
       );
     });
 
@@ -706,6 +718,7 @@ export default function SubmitPage() {
     setError("");
     const name = group.trim();
     const key = toCatalogKey(name);
+    const unitKey = toCatalogKey(UNIT_MEMBER_NAME);
     if (!name) return;
     if (!key) return setError("Invalid group name.");
     if (hasGroupInCatalog) return;
@@ -713,6 +726,7 @@ export default function SubmitPage() {
     try {
       await update(dbRef(db), {
         [`meta/groupCatalog/${key}/name`]: name,
+        [`meta/groupCatalog/${key}/members/${unitKey}`]: UNIT_MEMBER_NAME,
         [`meta/groupCatalog/${key}/updatedAt`]: serverTimestamp(),
       });
       setGroupCatalog((prev) => ({
@@ -721,7 +735,10 @@ export default function SubmitPage() {
           ...(prev[key] || {}),
           name,
           updatedAt: Date.now(),
-          members: prev[key]?.members || {},
+          members: {
+            ...(prev[key]?.members || {}),
+            [unitKey]: UNIT_MEMBER_NAME,
+          },
           albums: prev[key]?.albums || {},
           versions: prev[key]?.versions || {},
           membersLocked: Boolean(prev[key]?.membersLocked),
@@ -738,6 +755,7 @@ export default function SubmitPage() {
     const memberName = member.trim();
     const groupKey = toCatalogKey(groupName);
     const memberKey = toCatalogKey(memberName);
+    const unitKey = toCatalogKey(UNIT_MEMBER_NAME);
 
     if (!groupName || !memberName) return;
     if (!groupKey || !memberKey) return setError("Invalid group/member value.");
@@ -747,6 +765,7 @@ export default function SubmitPage() {
     try {
       const updates = {
         [`meta/groupCatalog/${groupKey}/name`]: groupName,
+        [`meta/groupCatalog/${groupKey}/members/${unitKey}`]: UNIT_MEMBER_NAME,
         [`meta/groupCatalog/${groupKey}/members/${memberKey}`]: memberName,
         [`meta/groupCatalog/${groupKey}/updatedAt`]: serverTimestamp(),
       };
@@ -760,6 +779,7 @@ export default function SubmitPage() {
           updatedAt: Date.now(),
           members: {
             ...(prev[groupKey]?.members || {}),
+            [unitKey]: UNIT_MEMBER_NAME,
             [memberKey]: memberName,
           },
           albums: {
@@ -781,6 +801,7 @@ export default function SubmitPage() {
     const versionName = version.trim();
     const groupKey = matchedCatalogGroupKey || toCatalogKey(groupName);
     const versionKey = toCatalogKey(versionName);
+    const unitKey = toCatalogKey(UNIT_MEMBER_NAME);
 
     if (!groupName || !versionName) return;
     if (!groupKey || !versionKey) return setError("Invalid group/version value.");
@@ -789,16 +810,10 @@ export default function SubmitPage() {
     try {
       const updates = {
         [`meta/groupCatalog/${groupKey}/name`]: groupName,
+        [`meta/groupCatalog/${groupKey}/members/${unitKey}`]: UNIT_MEMBER_NAME,
         [`meta/groupCatalog/${groupKey}/versions/${versionKey}`]: versionName,
         [`meta/groupCatalog/${groupKey}/updatedAt`]: serverTimestamp(),
       };
-      if (resolvedAlbum) {
-        const albumKey = toCatalogKey(resolvedAlbum);
-        if (albumKey) {
-          updates[`meta/groupCatalog/${groupKey}/albumVersions/${albumKey}/${versionKey}`] =
-            versionName;
-        }
-      }
       await update(dbRef(db), updates);
 
       setGroupCatalog((prev) => ({
@@ -809,6 +824,7 @@ export default function SubmitPage() {
           updatedAt: Date.now(),
           members: {
             ...(prev[groupKey]?.members || {}),
+            [unitKey]: UNIT_MEMBER_NAME,
           },
           albums: {
             ...(prev[groupKey]?.albums || {}),
@@ -817,17 +833,9 @@ export default function SubmitPage() {
             ...(prev[groupKey]?.versions || {}),
             [versionKey]: versionName,
           },
-          albumVersions: resolvedAlbum
-            ? {
-                ...(prev[groupKey]?.albumVersions || {}),
-                [toCatalogKey(resolvedAlbum)]: {
-                  ...(prev[groupKey]?.albumVersions?.[toCatalogKey(resolvedAlbum)] || {}),
-                  [versionKey]: versionName,
-                },
-              }
-            : {
-                ...(prev[groupKey]?.albumVersions || {}),
-              },
+          albumVersions: {
+            ...(prev[groupKey]?.albumVersions || {}),
+          },
         },
       }));
     } catch (err) {
@@ -873,12 +881,14 @@ export default function SubmitPage() {
           <select value={rarity} onChange={(e) => setRarity(e.target.value)}>
             <option value="album">Album</option>
             <option value="pob">POB</option>
-            <option value="concert">Concert</option>
+            <option value="concert">Concert/Tour</option>
             <option value="broadcast">Broadcast</option>
             <option value="lucky-draw">Lucky Draw</option>
             <option value="pop-up">Pop-Up</option>
             <option value="seasons-greetings">Seasons Greetings</option>
             <option value="fanclub">Fanclub</option>
+            <option value="collaboration">Collaboration</option>
+            <option value="merchandise">Merchandise</option>
             <option value="others">Others</option>
           </select>
         </label>
@@ -906,6 +916,7 @@ export default function SubmitPage() {
               setGroup(e.target.value);
               setAlbumChoice("");
               setNewAlbumName("");
+              setUnitMembers([]);
             }}
             placeholder="e.g. TWICE"
             required
@@ -935,7 +946,12 @@ export default function SubmitPage() {
           Member
           <input
             value={member}
-            onChange={(e) => setMember(e.target.value)}
+            onChange={(e) => {
+              setMember(e.target.value);
+              if (normalize(e.target.value) !== "unit") {
+                setUnitMembers([]);
+              }
+            }}
             placeholder={membersLocked ? "Pick from suggestions below" : "e.g. Sana"}
             readOnly={membersLocked}
             required
@@ -947,7 +963,12 @@ export default function SubmitPage() {
                   key={name}
                   type="button"
                   className="option-chip"
-                  onClick={() => setMember(name)}
+                  onClick={() => {
+                    setMember(name);
+                    if (normalize(name) !== "unit") {
+                      setUnitMembers([]);
+                    }
+                  }}
                 >
                   {name}
                 </button>
@@ -960,6 +981,37 @@ export default function SubmitPage() {
             </button>
           ) : null}
         </label>
+
+        {requiresUnitMembers ? (
+          <label>
+            Unit members
+            <p className="muted">Choose 2 to {selectableUnitMembers.length} members.</p>
+            <div className="option-list">
+              {selectableUnitMembers.map((name) => {
+                const selected = unitMembers.some((picked) => normalize(picked) === normalize(name));
+                return (
+                  <button
+                    key={name}
+                    type="button"
+                    className={`option-chip ${selected ? "active" : ""}`}
+                    onClick={() =>
+                      setUnitMembers((prev) => {
+                        const exists = prev.some((picked) => normalize(picked) === normalize(name));
+                        if (exists) {
+                          return prev.filter((picked) => normalize(picked) !== normalize(name));
+                        }
+                        return [...prev, name];
+                      })
+                    }
+                  >
+                    {name}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="muted">{unitMembers.length} selected</p>
+          </label>
+        ) : null}
 
         {supportsAlbumLink && (
           <label>
@@ -1028,19 +1080,25 @@ export default function SubmitPage() {
           rarity === "lucky-draw" ||
           rarity === "pop-up" ||
           rarity === "seasons-greetings" ||
-          rarity === "fanclub") && (
+          rarity === "fanclub" ||
+          rarity === "collaboration" ||
+          rarity === "merchandise") && (
           <label>
             {rarity === "broadcast"
               ? "Broadcast name"
               : rarity === "concert"
-                ? "Concert name"
+                ? "Concert/Tour name"
               : rarity === "lucky-draw"
                 ? "Lucky Draw source"
                 : rarity === "pop-up"
                   ? "Pop-Up source"
-                  : rarity === "seasons-greetings"
+                : rarity === "seasons-greetings"
                     ? "Seasons Greetings source"
-                    : "Fanclub source"}
+                    : rarity === "fanclub"
+                      ? "Fanclub source"
+                      : rarity === "collaboration"
+                        ? "Collaboration source"
+                        : "Merchandise source"}
             <input
               value={sourceName}
               onChange={(e) => setSourceName(e.target.value)}
@@ -1055,7 +1113,11 @@ export default function SubmitPage() {
                       ? "e.g. Seoul pop-up store"
                       : rarity === "seasons-greetings"
                         ? "e.g. 2026 package"
-                        : "e.g. 4th gen fanclub"
+                        : rarity === "fanclub"
+                          ? "e.g. 4th gen fanclub"
+                          : rarity === "collaboration"
+                            ? "e.g. Artist x Brand campaign"
+                            : "e.g. Official merch drop"
               }
             />
           </label>
@@ -1083,35 +1145,33 @@ export default function SubmitPage() {
           </>
         )}
 
-        {rarity !== "pob" && (
-          <label>
-            Version
-            <input
-              value={version}
-              onChange={(e) => setVersion(e.target.value)}
-              placeholder="e.g. Pathfinder ver."
-            />
-            {versionSuggestions.length > 0 ? (
-              <div className="option-list">
-                {versionSuggestions.map((name) => (
-                  <button
-                    key={name}
-                    type="button"
-                    className="option-chip"
-                    onClick={() => setVersion(name)}
-                  >
-                    {name}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            {!hasVersionInCatalog && group.trim() && version.trim() ? (
-              <button type="button" className="btn btn-ghost small" onClick={handleAddVersionToList}>
-                Add version to list
-              </button>
-            ) : null}
-          </label>
-        )}
+        <label>
+          Version
+          <input
+            value={version}
+            onChange={(e) => setVersion(e.target.value)}
+            placeholder="e.g. Pathfinder ver."
+          />
+          {showVersionSuggestions && versionSuggestions.length > 0 ? (
+            <div className="option-list">
+              {versionSuggestions.map((name) => (
+                <button
+                  key={name}
+                  type="button"
+                  className="option-chip"
+                  onClick={() => setVersion(name)}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {!hasVersionInCatalog && group.trim() && version.trim() ? (
+            <button type="button" className="btn btn-ghost small" onClick={handleAddVersionToList}>
+              Add version to list
+            </button>
+          ) : null}
+        </label>
 
         <label>
           Generated title

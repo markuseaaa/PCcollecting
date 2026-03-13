@@ -19,6 +19,7 @@ const EDIT_FIELDS = [
   "pobStore",
   "otherType",
 ];
+const UNIT_MEMBER_NAME = "Unit";
 
 function normalize(v) {
   return String(v || "").trim().toLowerCase();
@@ -351,6 +352,7 @@ export default function AdminPage() {
     setError("");
     const name = groupInput.trim();
     const key = toCatalogKey(name);
+    const unitKey = toCatalogKey(UNIT_MEMBER_NAME);
     if (!name) return;
     if (!key) return;
     if (groupCatalog[key]) {
@@ -362,6 +364,7 @@ export default function AdminPage() {
     try {
       await update(ref(db), {
         [`meta/groupCatalog/${key}/name`]: name,
+        [`meta/groupCatalog/${key}/members/${unitKey}`]: UNIT_MEMBER_NAME,
         [`meta/groupCatalog/${key}/updatedAt`]: serverTimestamp(),
       });
 
@@ -369,7 +372,9 @@ export default function AdminPage() {
         ...prev,
         [key]: {
           name,
-          members: {},
+          members: {
+            [unitKey]: UNIT_MEMBER_NAME,
+          },
           albums: {},
           versions: {},
           membersLocked: false,
@@ -391,6 +396,7 @@ export default function AdminPage() {
     const groupKey = selectedGroupKey || toCatalogKey(groupInput);
     const memberName = memberInput.trim();
     const memberKey = toCatalogKey(memberName);
+    const unitKey = toCatalogKey(UNIT_MEMBER_NAME);
     if (!groupKey || !memberName || !memberKey) return;
     if (groupCatalog[groupKey]?.membersLocked) {
       setError("Members are locked for this group.");
@@ -403,6 +409,7 @@ export default function AdminPage() {
     try {
       await update(ref(db), {
         [`meta/groupCatalog/${groupKey}/name`]: groupName,
+        [`meta/groupCatalog/${groupKey}/members/${unitKey}`]: UNIT_MEMBER_NAME,
         [`meta/groupCatalog/${groupKey}/members/${memberKey}`]: memberName,
         [`meta/groupCatalog/${groupKey}/updatedAt`]: serverTimestamp(),
       });
@@ -415,6 +422,7 @@ export default function AdminPage() {
           updatedAt: Date.now(),
           members: {
             ...(prev[groupKey]?.members || {}),
+            [unitKey]: UNIT_MEMBER_NAME,
             [memberKey]: memberName,
           },
           albums: {
