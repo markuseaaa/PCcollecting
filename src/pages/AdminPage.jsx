@@ -1118,6 +1118,7 @@ export default function AdminPage() {
               <StorageImage
                 src={item.imageUrl || item.coverImage || ""}
                 thumbPath={item.thumbPath}
+                imagePath={item.imagePath}
                 alt={item.title || "Photocard"}
                 thumbOnly
               />

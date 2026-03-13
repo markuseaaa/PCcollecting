@@ -39,18 +39,11 @@ export function buildResizedPath(path, size = DEFAULT_CARD_THUMB_SIZE) {
   const p = String(path || "").trim();
   if (!p) return "";
 
-  // New storage layout for photocards:
-  // originals: uploads/{uid}/image.ext
-  // thumbs:    thumbs/{uid}/image_{size}.webp
-  if (p.startsWith("uploads/")) {
-    const relative = p.slice("uploads/".length);
-    const dot = relative.lastIndexOf(".");
-    const base = dot < 0 ? relative : relative.slice(0, dot);
-    return `thumbs/${base}_${size}.webp`;
-  }
-
-  // Legacy fallback: keep same folder and extension.
-  const dot = p.lastIndexOf(".");
-  if (dot < 0) return `${p}_${size}`;
-  return `${p.slice(0, dot)}_${size}${p.slice(dot)}`;
+  // Canonical storage layout:
+  // originals: uploads/{uid}/...
+  // thumbs:    thumbs/{uid}/..._{size}.webp
+  const relative = p.startsWith("uploads/") ? p.slice("uploads/".length) : p;
+  const dot = relative.lastIndexOf(".");
+  const base = dot < 0 ? relative : relative.slice(0, dot);
+  return `thumbs/${base}_${size}.webp`;
 }

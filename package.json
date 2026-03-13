@@ -8,7 +8,8 @@
     "start": "vite --host",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "migrate:thumb-paths": "node scripts/normalize-thumb-paths.mjs"
   },
   "dependencies": {
     "firebase": "^12.4.0",

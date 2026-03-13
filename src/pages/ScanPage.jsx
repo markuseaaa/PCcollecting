@@ -429,6 +429,7 @@ export default function ScanPage() {
             <StorageImage
               src={item.imageUrl || ""}
               thumbPath={item.thumbPath}
+              imagePath={item.imagePath}
               alt={item.title || "Photocard"}
               thumbOnly
             />

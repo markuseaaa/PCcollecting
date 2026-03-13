@@ -468,6 +468,7 @@ export default function MyPhotocardsPage() {
               <StorageImage
                 src={item.imageUrl || item.coverImage || ""}
                 thumbPath={item.thumbPath}
+                imagePath={item.imagePath}
                 alt={item.title || "Photocard"}
                 thumbOnly
               />
@@ -631,6 +632,7 @@ export default function MyPhotocardsPage() {
                       <StorageImage
                         src={match.imageUrl || match.coverImage || ""}
                         thumbPath={match.thumbPath}
+                        imagePath={match.imagePath}
                         alt={match.title || "Photocard"}
                         thumbOnly
                       />

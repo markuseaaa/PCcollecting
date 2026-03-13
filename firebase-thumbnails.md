@@ -56,9 +56,23 @@ firebase deploy --only storage,database
 
 - Legacy files under `users/{uid}/...` still load.
 - New uploads now go to `uploads/{uid}/...`.
-- Existing old thumbs/originals are not automatically moved; they continue to work with current DB values.
+- The app now treats thumbnail paths as WebP-only.
 
-## 6) Quick verification checklist
+## 6) Normalize existing DB thumbnail paths to WebP
+
+Run this once to rewrite old `thumbPath` / `coverThumbPath` extensions (for example `.jpg`) to `.webp`:
+
+```bash
+npm run migrate:thumb-paths -- /absolute/path/to/serviceAccountKey.json https://pccollecting-7dfc3-default-rtdb.europe-west1.firebasedatabase.app/
+```
+
+The script updates:
+
+- `items/*/thumbPath`
+- `users/*/collectionItems/*/thumbPath`
+- `users/*/collections/*/coverThumbPath`
+
+## 7) Quick verification checklist
 
 1. Upload a new photocard.
 2. Confirm Storage contains:

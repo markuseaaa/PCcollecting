@@ -133,6 +133,7 @@ export default function AddFromMyPhotocardsPage() {
             <StorageImage
               src={item.imageUrl || item.coverImage || ""}
               thumbPath={item.thumbPath}
+              imagePath={item.imagePath}
               alt={item.title || "Photocard"}
               thumbOnly
             />

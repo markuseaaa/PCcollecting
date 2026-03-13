@@ -105,6 +105,7 @@ export default function DetailPage() {
           <StorageImage
             src={item.imageUrl || item.coverImage || ""}
             thumbPath={item.thumbPath}
+            imagePath={item.imagePath}
             alt={item.title || "Photocard"}
             className="detail-image"
             thumbOnly

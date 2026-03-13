@@ -60,6 +60,7 @@ export default function AllCollectionsPage() {
             <StorageImage
               src={collection.coverImage || ""}
               thumbPath={collection.coverThumbPath}
+              imagePath={collection.coverImagePath}
               alt={collection.title || "Collection"}
               thumbOnly
             />

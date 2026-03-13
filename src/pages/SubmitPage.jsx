@@ -1326,6 +1326,7 @@ export default function SubmitPage() {
                   <StorageImage
                     src={candidate.imageUrl || candidate.coverImage || ""}
                     thumbPath={candidate.thumbPath}
+                    imagePath={candidate.imagePath}
                     alt={candidate.title || "Photocard"}
                     thumbOnly
                   />
