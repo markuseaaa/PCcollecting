@@ -4,6 +4,20 @@ import { storage } from "../../firebase-config";
 
 const thumbUrlCache = new Map();
 
+function buildThumbCandidates(path) {
+  const clean = String(path || "").trim();
+  if (!clean) return [];
+  const candidates = [clean];
+  const dot = clean.lastIndexOf(".");
+  if (dot > -1) {
+    const ext = clean.slice(dot + 1).toLowerCase();
+    if (ext !== "webp") {
+      candidates.push(`${clean.slice(0, dot)}.webp`);
+    }
+  }
+  return Array.from(new Set(candidates));
+}
+
 export default function StorageImage({
   src,
   thumbPath,
@@ -19,30 +33,36 @@ export default function StorageImage({
   useEffect(() => {
     let mounted = true;
     const path = String(thumbPath || "").trim();
+    const candidates = buildThumbCandidates(path);
 
-    if (!path) {
+    if (candidates.length === 0) {
       setResolvedThumbUrl("");
       return () => {
         mounted = false;
       };
     }
 
-    const cached = thumbUrlCache.get(path);
-    if (cached) {
-      setResolvedThumbUrl(cached);
+    const cachedCandidate = candidates.find((candidate) => thumbUrlCache.has(candidate));
+    if (cachedCandidate) {
+      setResolvedThumbUrl(thumbUrlCache.get(cachedCandidate) || "");
       return () => {
         mounted = false;
       };
     }
 
-    getDownloadURL(storageRef(storage, path))
-      .then((url) => {
-        thumbUrlCache.set(path, url);
-        if (mounted) setResolvedThumbUrl(url);
-      })
-      .catch(() => {
-        if (mounted) setResolvedThumbUrl("");
-      });
+    (async () => {
+      for (const candidate of candidates) {
+        try {
+          const url = await getDownloadURL(storageRef(storage, candidate));
+          thumbUrlCache.set(candidate, url);
+          if (mounted) setResolvedThumbUrl(url);
+          return;
+        } catch {
+          // Try next candidate.
+        }
+      }
+      if (mounted) setResolvedThumbUrl("");
+    })();
 
     return () => {
       mounted = false;

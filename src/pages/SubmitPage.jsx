@@ -474,6 +474,9 @@ export default function SubmitPage() {
   }
 
   function resetForNextAdd() {
+    setSelectedCollectionId("");
+    setRarity("album");
+    setGroup("");
     setMember("");
     setUnitMembers([]);
     setAlbumChoice("");
