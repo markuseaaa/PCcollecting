@@ -18,6 +18,18 @@ function countByMember(items) {
     .map(([member, count]) => ({ member, count }));
 }
 
+function countByGroup(items) {
+  const map = new Map();
+  for (const item of items) {
+    const key = (item.group || "Unknown").trim() || "Unknown";
+    map.set(key, (map.get(key) || 0) + 1);
+  }
+  return [...map.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([group, count]) => ({ group, count }));
+}
+
 export default function HomePage() {
   const [collections, setCollections] = useState([]);
   const [items, setItems] = useState([]);
@@ -70,6 +82,7 @@ export default function HomePage() {
   }, []);
 
   const topMembers = useMemo(() => countByMember(items), [items]);
+  const topGroups = useMemo(() => countByGroup(items), [items]);
   const latestCards = useMemo(() => items.slice(0, 8), [items]);
 
   return (
@@ -104,6 +117,10 @@ export default function HomePage() {
           <p className="stat-label">Top member</p>
           <p className="stat-value">{topMembers[0]?.member || "-"}</p>
         </article>
+        <article className="stat-card">
+          <p className="stat-label">Top group</p>
+          <p className="stat-value">{topGroups[0]?.group || "-"}</p>
+        </article>
       </section>
 
       <section className="section-block">
@@ -115,6 +132,22 @@ export default function HomePage() {
             {topMembers.map((entry) => (
               <li key={entry.member}>
                 <span>{entry.member}</span>
+                <strong>{entry.count}</strong>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="section-block">
+        <h2>Most collected groups</h2>
+        {topGroups.length === 0 ? (
+          <p className="muted">No group data yet.</p>
+        ) : (
+          <ul className="member-list">
+            {topGroups.map((entry) => (
+              <li key={entry.group}>
+                <span>{entry.group}</span>
                 <strong>{entry.count}</strong>
               </li>
             ))}

@@ -689,7 +689,7 @@ textarea:focus {
   width: min(760px, calc(100% - 1rem));
   background: rgba(30, 24, 21, 0.95);
   border-radius: 1rem;
-  padding: 0.4rem 0.5rem;
+  padding: 0.8rem 0.5rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
