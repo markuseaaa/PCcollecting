@@ -3,7 +3,11 @@ import { useNavigate, useParams } from "react-router";
 import { ref as dbRef, get, update, serverTimestamp } from "firebase/database";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { auth, db, storage } from "../../firebase-config";
-import { buildResizedPath } from "../lib/imagePaths";
+import {
+  buildCollectionCoverImagePath,
+  buildResizedPath,
+  normalizeImageExtension,
+} from "../lib/imagePaths";
 import Nav from "../components/Nav";
 
 export default function EditCollectionPage() {
@@ -79,8 +83,8 @@ export default function EditCollectionPage() {
       let coverThumbPath = currentCoverThumbPath;
 
       if (coverFile) {
-        const ext = coverFile.name.split(".").pop()?.toLowerCase() || "jpg";
-        coverImagePath = `users/${uid}/collections/${collectionId}/cover.${ext}`;
+        const ext = normalizeImageExtension(coverFile.name.split(".").pop(), "jpg");
+        coverImagePath = buildCollectionCoverImagePath(uid, collectionId, ext);
         coverThumbPath = buildResizedPath(coverImagePath);
         const fileRef = storageRef(storage, coverImagePath);
         await uploadBytes(fileRef, coverFile, { contentType: coverFile.type });

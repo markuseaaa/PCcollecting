@@ -3,7 +3,12 @@ import { useNavigate, useSearchParams } from "react-router";
 import { ref as dbRef, get, push, update, serverTimestamp } from "firebase/database";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { auth, db, storage } from "../../firebase-config";
-import { buildResizedPath, DEFAULT_CARD_THUMB_SIZE } from "../lib/imagePaths";
+import {
+  buildPhotocardImagePath,
+  buildResizedPath,
+  DEFAULT_CARD_THUMB_SIZE,
+  normalizeImageExtension,
+} from "../lib/imagePaths";
 import { cropImageFileToBlob } from "../lib/imageCrop";
 import { computeAverageHashFromBlob } from "../lib/imageHash";
 import { DEFAULT_POB_STORES, formatPobStoreName } from "../lib/pobStore";
@@ -573,10 +578,10 @@ export default function SubmitPage() {
       } else {
         uploadBlob = photoFile;
         mimeType = photoFile.type || "image/jpeg";
-        ext = photoFile.name.split(".").pop()?.toLowerCase() || "jpg";
+        ext = normalizeImageExtension(photoFile.name.split(".").pop(), "jpg");
       }
 
-      const imagePath = `users/${uid}/photocards/${itemId}.${ext}`;
+      const imagePath = buildPhotocardImagePath(uid, itemId, ext);
       const thumbPath = buildResizedPath(imagePath, DEFAULT_CARD_THUMB_SIZE);
       const imageRef = storageRef(storage, imagePath);
 

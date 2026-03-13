@@ -4,6 +4,7 @@ import { ref, get } from "firebase/database";
 import { auth, db } from "../../firebase-config";
 import { formatRarityLabel } from "../lib/rarity";
 import { formatPobStoreName } from "../lib/pobStore";
+import StorageImage from "../components/StorageImage";
 import Nav from "../components/Nav";
 
 export default function DetailPage() {
@@ -11,6 +12,7 @@ export default function DetailPage() {
   const [item, setItem] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [showOriginal, setShowOriginal] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -49,6 +51,7 @@ export default function DetailPage() {
           setError("Photocard not found.");
         } else {
           setItem(found);
+          setShowOriginal(false);
         }
       } catch (err) {
         if (!alive) return;
@@ -84,6 +87,7 @@ export default function DetailPage() {
   const backTo = collectionId
     ? `/users/${auth.currentUser?.uid}/collections/${collectionId}`
     : "/homepage";
+  const canUseThumb = Boolean(String(item.thumbPath || "").trim());
 
   return (
     <main className="page-content with-nav-space">
@@ -91,11 +95,31 @@ export default function DetailPage() {
         <Link to={backTo} className="btn btn-ghost small">
           Back
         </Link>
-        <img
-          src={item.imageUrl || item.coverImage || ""}
-          alt={item.title || "Photocard"}
-          className="detail-image"
-        />
+        {showOriginal || !canUseThumb ? (
+          <img
+            src={item.imageUrl || item.coverImage || ""}
+            alt={item.title || "Photocard"}
+            className="detail-image"
+          />
+        ) : (
+          <StorageImage
+            src={item.imageUrl || item.coverImage || ""}
+            thumbPath={item.thumbPath}
+            alt={item.title || "Photocard"}
+            className="detail-image"
+            thumbOnly
+            loading="eager"
+          />
+        )}
+        {canUseThumb ? (
+          <button
+            type="button"
+            className="btn btn-ghost small"
+            onClick={() => setShowOriginal((prev) => !prev)}
+          >
+            {showOriginal ? "Use data saver image" : "Show full quality image"}
+          </button>
+        ) : null}
         <h1>{item.title || "Untitled"}</h1>
         <ul className="detail-list">
           <li>

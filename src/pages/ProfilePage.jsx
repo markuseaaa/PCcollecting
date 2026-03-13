@@ -5,6 +5,7 @@ import { ref, get, update, runTransaction, serverTimestamp } from "firebase/data
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { auth, db, storage } from "../../firebase-config";
 import { hasAdminClaim } from "../lib/adminAuth";
+import { buildProfileAvatarImagePath, normalizeImageExtension } from "../lib/imagePaths";
 import StorageImage from "../components/StorageImage";
 import Nav from "../components/Nav";
 
@@ -164,8 +165,8 @@ export default function ProfilePage() {
       }
 
       if (photoFile) {
-        const ext = photoFile.name.split(".").pop()?.toLowerCase() || "jpg";
-        const photoPath = `users/${uid}/profile/avatar.${ext}`;
+        const ext = normalizeImageExtension(photoFile.name.split(".").pop(), "jpg");
+        const photoPath = buildProfileAvatarImagePath(uid, ext);
         const fileRef = storageRef(storage, photoPath);
         await uploadBytes(fileRef, photoFile, { contentType: photoFile.type || "image/jpeg" });
         const url = await getDownloadURL(fileRef);
