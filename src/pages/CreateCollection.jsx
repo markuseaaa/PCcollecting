@@ -9,6 +9,7 @@ import Nav from "../components/Nav";
 export default function CreateCollection() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [visibility, setVisibility] = useState("public");
   const [coverFile, setCoverFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -51,6 +52,7 @@ export default function CreateCollection() {
         coverImagePath;
       updates[`users/${uid}/collections/${collectionId}/coverThumbPath`] =
         coverThumbPath;
+      updates[`users/${uid}/collections/${collectionId}/visibility`] = visibility;
       updates[`users/${uid}/collections/${collectionId}/createdAt`] = now;
       updates[`users/${uid}/collections/${collectionId}/updatedAt`] = now;
 
@@ -87,6 +89,14 @@ export default function CreateCollection() {
               onChange={(e) => setDescription(e.target.value)}
               placeholder="e.g. Korea album pulls only"
             />
+          </label>
+
+          <label>
+            Visibility
+            <select value={visibility} onChange={(e) => setVisibility(e.target.value)}>
+              <option value="public">Public</option>
+              <option value="private">Private</option>
+            </select>
           </label>
 
           <label>

@@ -47,6 +47,9 @@ export default function Signup() {
       [`users/${uid}/uid`]: uid,
       [`users/${uid}/username`]: uname,
       [`users/${uid}/email`]: userEmail,
+      [`users/${uid}/bio`]: "",
+      [`users/${uid}/profilePhotoUrl`]: "",
+      [`users/${uid}/profilePhotoPath`]: "",
       [`users/${uid}/settings/language`]: "en",
       [`users/${uid}/settings/theme`]: "system",
       [`users/${uid}/settings/privacy`]: "friends",
@@ -58,6 +61,8 @@ export default function Signup() {
       [`users/${uid}/favourites/_placeholder`]: true,
       [`users/${uid}/wishlist/_placeholder`]: true,
       [`users/${uid}/friends/_placeholder`]: true,
+      [`users/${uid}/friendRequestsIncoming/_placeholder`]: true,
+      [`users/${uid}/friendRequestsOutgoing/_placeholder`]: true,
 
       [`userIndex/usernames/${uname}`]: uid,
     });

@@ -17,6 +17,7 @@ import AddItem from "./pages/AddItem";
 import SubmitPage from "./pages/SubmitPage";
 import DetailPage from "./pages/DetailPage";
 import ProfilePage from "./pages/ProfilePage";
+import PublicProfilePage from "./pages/PublicProfilePage";
 import MyPhotocardsPage from "./pages/MyPhotocardsPage";
 import AdminPage from "./pages/AdminPage";
 import ScanPage from "./pages/ScanPage";
@@ -97,6 +98,7 @@ export default function App() {
             />
             <Route path="/items/:id" element={<DetailPage />} />
             <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/users/:uid/public" element={<PublicProfilePage />} />
             <Route path="*" element={<Navigate to="/homepage" replace />} />
           </Routes>
         ) : (

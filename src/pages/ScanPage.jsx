@@ -430,6 +430,7 @@ export default function ScanPage() {
               src={item.imageUrl || ""}
               thumbPath={item.thumbPath}
               alt={item.title || "Photocard"}
+              thumbOnly
             />
             <div>
               <p className="photo-title">{item.title || "Untitled"}</p>

@@ -9,6 +9,13 @@ import {
   computeCenteredAverageHashFromBlob,
   hammingDistance,
 } from "../lib/imageHash";
+import {
+  getCachedCollectionItems,
+  getCachedCollections,
+  removeCachedCollectionItem,
+  setCachedCollectionItems,
+  setCachedCollections,
+} from "../lib/userDataCache";
 import StorageImage from "../components/StorageImage";
 import Nav from "../components/Nav";
 
@@ -45,7 +52,7 @@ export default function MyPhotocardsPage() {
   const checkDragRef = useRef(null);
   const checkPointersRef = useRef(new Map());
   const checkPinchRef = useRef(null);
-  const [visibleCount, setVisibleCount] = useState(40);
+  const [visibleCount, setVisibleCount] = useState(24);
 
   useEffect(() => {
     let alive = true;
@@ -59,6 +66,21 @@ export default function MyPhotocardsPage() {
       }
 
       try {
+        const cachedItems = getCachedCollectionItems(uid);
+        const cachedCollections = getCachedCollections(uid);
+        if (cachedItems && cachedCollections) {
+          setItems(cachedItems);
+          const cachedMap = {};
+          for (const entry of cachedCollections) {
+            const key = String(entry?.id || "");
+            if (!key) continue;
+            cachedMap[key] = entry?.title || "Untitled";
+          }
+          setCollectionMap(cachedMap);
+          setLoading(false);
+          return;
+        }
+
         const [itemSnap, collectionSnap] = await Promise.all([
           get(ref(db, `users/${uid}/collectionItems`)),
           get(ref(db, `users/${uid}/collections`)),
@@ -71,14 +93,18 @@ export default function MyPhotocardsPage() {
           .filter((k) => !k.startsWith("_"))
           .map((k) => ({ id: k, ...rawItems[k] }));
         setItems(list);
+        setCachedCollectionItems(uid, list);
 
         const rawCollections = collectionSnap.exists() ? collectionSnap.val() : {};
         const map = {};
+        const collectionList = [];
         for (const key of Object.keys(rawCollections || {})) {
           if (key.startsWith("_")) continue;
           map[key] = rawCollections[key]?.title || "Untitled";
+          collectionList.push({ id: key, ...rawCollections[key] });
         }
         setCollectionMap(map);
+        setCachedCollections(uid, collectionList);
       } catch (err) {
         if (!alive) return;
         setError(err?.message || "Could not load your photocards.");
@@ -165,7 +191,7 @@ export default function MyPhotocardsPage() {
   );
 
   useEffect(() => {
-    setVisibleCount(40);
+    setVisibleCount(24);
   }, [query, memberFilter, albumFilter, rarityFilter, sortBy]);
 
   async function handleRemove(itemId) {
@@ -177,6 +203,7 @@ export default function MyPhotocardsPage() {
     try {
       await remove(ref(db, `users/${uid}/collectionItems/${itemId}`));
       setItems((prev) => prev.filter((item) => item.id !== itemId));
+      removeCachedCollectionItem(uid, itemId);
     } catch (err) {
       setError(err?.message || "Could not remove photocard.");
     } finally {
@@ -442,6 +469,7 @@ export default function MyPhotocardsPage() {
                 src={item.imageUrl || item.coverImage || ""}
                 thumbPath={item.thumbPath}
                 alt={item.title || "Photocard"}
+                thumbOnly
               />
               <div>
                 <p className="photo-title">{item.title || "Untitled"}</p>
@@ -476,7 +504,7 @@ export default function MyPhotocardsPage() {
           <button
             type="button"
             className="btn btn-ghost small"
-            onClick={() => setVisibleCount((prev) => prev + 40)}
+            onClick={() => setVisibleCount((prev) => prev + 24)}
           >
             Load more
           </button>
@@ -604,6 +632,7 @@ export default function MyPhotocardsPage() {
                         src={match.imageUrl || match.coverImage || ""}
                         thumbPath={match.thumbPath}
                         alt={match.title || "Photocard"}
+                        thumbOnly
                       />
                       <div>
                         <p className="photo-title">{match.title || "Untitled"}</p>

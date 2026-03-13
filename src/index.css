@@ -410,6 +410,29 @@ p {
 
 .profile-actions {
   margin-top: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.profile-head {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin-bottom: 0.7rem;
+}
+
+.profile-avatar {
+  width: 96px;
+  height: 96px;
+  border-radius: 999px;
+  object-fit: cover;
+  border: 1px solid var(--stroke);
+  background: #fff;
+}
+
+.collection-visibility {
+  font-size: 0.72rem;
 }
 
 .photo-title {
@@ -831,6 +854,15 @@ textarea:focus {
     margin-top: 1.15rem;
   }
 
+  .profile-head {
+    align-items: flex-start;
+  }
+
+  .profile-avatar {
+    width: 78px;
+    height: 78px;
+  }
+
   .add-item-actions .btn {
     font-size: 0.78rem;
     padding: 0.56rem 0.72rem;
@@ -874,7 +906,7 @@ textarea:focus {
   }
 
   .bottom-nav {
-    padding: 0.5rem 0.45rem;
+    padding: 0.7rem 0.45rem;
     border-radius: 0.9rem;
   }
 

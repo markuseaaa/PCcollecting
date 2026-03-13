@@ -63,7 +63,12 @@ export default function AdminPage() {
   const [editingAlbumName, setEditingAlbumName] = useState("");
   const [selectedGroupKey, setSelectedGroupKey] = useState("");
   const [catalogSaving, setCatalogSaving] = useState(false);
-  const [visibleCount, setVisibleCount] = useState(40);
+  const [visibleCount, setVisibleCount] = useState(24);
+  const [itemsLoaded, setItemsLoaded] = useState(false);
+  const [itemsLoading, setItemsLoading] = useState(false);
+  const [showAllCards, setShowAllCards] = useState(false);
+  const [showAlbumsPanel, setShowAlbumsPanel] = useState(false);
+  const [showVersionsPanel, setShowVersionsPanel] = useState(false);
 
   const [editingId, setEditingId] = useState("");
   const [form, setForm] = useState({
@@ -102,20 +107,10 @@ export default function AdminPage() {
           return;
         }
 
-        const [itemSnap, catalogSnap] = await Promise.all([
-          get(ref(db, "items")),
-          get(ref(db, "meta/groupCatalog")),
-        ]);
-        const val = itemSnap.exists() ? itemSnap.val() : {};
-        const list = Object.keys(val || {})
-          .filter((k) => !k.startsWith("_"))
-          .map((k) => ({ id: k, ...val[k] }))
-          .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0));
-
-        if (!alive) return;
-        setItems(list);
+        const catalogSnap = await get(ref(db, "meta/groupCatalog"));
 
         const catalogVal = catalogSnap.exists() ? catalogSnap.val() : {};
+        if (!alive) return;
         setGroupCatalog(catalogVal || {});
         const firstKey = Object.keys(catalogVal || {})[0] || "";
         setSelectedGroupKey(firstKey);
@@ -150,8 +145,25 @@ export default function AdminPage() {
   );
 
   useEffect(() => {
-    setVisibleCount(40);
+    setVisibleCount(24);
   }, [query]);
+
+  async function loadItemsIfNeeded(force = false) {
+    if (!force && itemsLoaded) return;
+    setItemsLoading(true);
+    try {
+      const itemSnap = await get(ref(db, "items"));
+      const val = itemSnap.exists() ? itemSnap.val() : {};
+      const list = Object.keys(val || {})
+        .filter((k) => !k.startsWith("_"))
+        .map((k) => ({ id: k, ...val[k] }))
+        .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0));
+      setItems(list);
+      setItemsLoaded(true);
+    } finally {
+      setItemsLoading(false);
+    }
+  }
 
   const sortedGroupEntries = useMemo(() => {
     return Object.entries(groupCatalog || {}).sort((a, b) =>
@@ -570,6 +582,14 @@ export default function AdminPage() {
 
     setCatalogSaving(true);
     try {
+      let itemsForPropagation = items;
+      if (!itemsLoaded) {
+        const itemSnap = await get(ref(db, "items"));
+        const val = itemSnap.exists() ? itemSnap.val() : {};
+        itemsForPropagation = Object.keys(val || {})
+          .filter((k) => !k.startsWith("_"))
+          .map((k) => ({ id: k, ...val[k] }));
+      }
       const updates = {
         [`meta/groupCatalog/${selectedGroupKey}/updatedAt`]: serverTimestamp(),
       };
@@ -578,7 +598,7 @@ export default function AdminPage() {
       }
       updates[`meta/groupCatalog/${selectedGroupKey}/albums/${newKey}`] = newName;
       const matchedItemIds = [];
-      for (const item of items) {
+      for (const item of itemsForPropagation) {
         const groupNorm = normalize(item.group);
         const albumNorm = normalize(item.album);
         const groupMatch =
@@ -614,7 +634,7 @@ export default function AdminPage() {
           },
         };
       });
-      if (matchedItemIds.length > 0) {
+      if (matchedItemIds.length > 0 && itemsLoaded) {
         setItems((prev) =>
           prev.map((item) =>
             matchedItemIds.includes(item.id) ? { ...item, album: newName, updatedAt: Date.now() } : item
@@ -755,18 +775,6 @@ export default function AdminPage() {
           <p className="stat-label">Total photocards added</p>
           <p className="stat-value">{items.length}</p>
         </article>
-      </section>
-
-      <section className="section-block">
-        <label className="search-label">
-          Search all cards
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="title, group, member, album"
-          />
-        </label>
-        {error && <p className="error-text">{error}</p>}
       </section>
 
       <section className="section-block">
@@ -921,68 +929,93 @@ export default function AdminPage() {
               ))}
             </ul>
 
-            <h3>Albums in selected group</h3>
-            {selectedAlbums.length === 0 ? <p className="muted">No albums yet.</p> : null}
-            <ul className="member-list">
-              {selectedAlbums.map((album) => (
-                <li key={album.key}>
-                  <span>
-                    {album.name}
-                    {!album.inCatalog ? " (from items)" : ""}
-                  </span>
-                  {album.inCatalog ? (
-                    <div className="center-action">
+            <div className="center-action">
+              <button
+                type="button"
+                className="btn btn-ghost small"
+                onClick={() => setShowAlbumsPanel((v) => !v)}
+              >
+                {showAlbumsPanel ? "Hide albums" : "Show albums"}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost small"
+                onClick={() => setShowVersionsPanel((v) => !v)}
+              >
+                {showVersionsPanel ? "Hide versions" : "Show versions"}
+              </button>
+            </div>
+
+            {showAlbumsPanel ? (
+              <>
+                <h3>Albums in selected group</h3>
+                {selectedAlbums.length === 0 ? <p className="muted">No albums yet.</p> : null}
+                <ul className="member-list">
+                  {selectedAlbums.map((album) => (
+                    <li key={album.key}>
+                      <span>
+                        {album.name}
+                        {!album.inCatalog ? " (from items)" : ""}
+                      </span>
+                      {album.inCatalog ? (
+                        <div className="center-action">
+                          <button
+                            type="button"
+                            className="btn btn-ghost small"
+                            onClick={() => {
+                              setEditingAlbumKey(album.key);
+                              setEditingAlbumName(album.name);
+                            }}
+                            disabled={catalogSaving}
+                          >
+                            Rename
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-ghost small"
+                            onClick={() => handleRemoveAlbum(album.key)}
+                            disabled={catalogSaving}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-ghost small"
+                          onClick={() => handleAddAlbum(album.name)}
+                          disabled={catalogSaving}
+                        >
+                          Add to catalog
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+
+            {showVersionsPanel ? (
+              <>
+                <h3>Versions in selected group</h3>
+                {selectedVersions.length === 0 ? <p className="muted">No versions yet.</p> : null}
+                <ul className="member-list">
+                  {selectedVersions.map((version) => (
+                    <li key={version.key}>
+                      <span>{version.name}</span>
                       <button
                         type="button"
                         className="btn btn-ghost small"
-                        onClick={() => {
-                          setEditingAlbumKey(album.key);
-                          setEditingAlbumName(album.name);
-                        }}
-                        disabled={catalogSaving}
-                      >
-                        Rename
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-ghost small"
-                        onClick={() => handleRemoveAlbum(album.key)}
+                        onClick={() => handleRemoveVersion(version.key)}
                         disabled={catalogSaving}
                       >
                         Remove
                       </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn btn-ghost small"
-                      onClick={() => handleAddAlbum(album.name)}
-                      disabled={catalogSaving}
-                    >
-                      Add to catalog
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
-
-            <h3>Versions in selected group</h3>
-            {selectedVersions.length === 0 ? <p className="muted">No versions yet.</p> : null}
-            <ul className="member-list">
-              {selectedVersions.map((version) => (
-                <li key={version.key}>
-                  <span>{version.name}</span>
-                  <button
-                    type="button"
-                    className="btn btn-ghost small"
-                    onClick={() => handleRemoveVersion(version.key)}
-                    disabled={catalogSaving}
-                  >
-                    Remove
-                  </button>
-                </li>
-              ))}
-            </ul>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
 
             {editingAlbumKey ? (
               <div className="form-grid compact">
@@ -1031,7 +1064,7 @@ export default function AdminPage() {
                   {members.length} members
                   {value?.membersLocked ? " (locked)" : ""}
                   {" • "}
-                  {cardCount} cards
+                  {itemsLoaded ? `${cardCount} cards` : "cards hidden"}
                 </strong>
               </li>
             );
@@ -1039,7 +1072,45 @@ export default function AdminPage() {
         </ul>
       </section>
 
-      <div className="card-grid">
+      <section className="section-block">
+        <div className="section-heading-row">
+          <h2>All photocards</h2>
+          {!showAllCards ? (
+            <button
+              type="button"
+              className="btn btn-primary small"
+              onClick={async () => {
+                setShowAllCards(true);
+                await loadItemsIfNeeded();
+              }}
+              disabled={itemsLoading}
+            >
+              {itemsLoading ? "Loading..." : "Show"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-ghost small"
+              onClick={() => setShowAllCards(false)}
+            >
+              Hide
+            </button>
+          )}
+        </div>
+        {showAllCards ? (
+          <label className="search-label">
+            Search all cards
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="title, group, member, album"
+            />
+          </label>
+        ) : null}
+        {error && <p className="error-text">{error}</p>}
+      </section>
+
+      {showAllCards ? <div className="card-grid">
         {visibleItems.map((item) => {
           const isEditing = editingId === item.id;
           return (
@@ -1048,6 +1119,7 @@ export default function AdminPage() {
                 src={item.imageUrl || item.coverImage || ""}
                 thumbPath={item.thumbPath}
                 alt={item.title || "Photocard"}
+                thumbOnly
               />
 
               <div>
@@ -1173,14 +1245,14 @@ export default function AdminPage() {
             </article>
           );
         })}
-      </div>
+      </div> : null}
 
-      {visibleItems.length < filtered.length ? (
+      {showAllCards && visibleItems.length < filtered.length ? (
         <div className="center-action">
           <button
             type="button"
             className="btn btn-ghost small"
-            onClick={() => setVisibleCount((prev) => prev + 40)}
+            onClick={() => setVisibleCount((prev) => prev + 24)}
           >
             Load more
           </button>

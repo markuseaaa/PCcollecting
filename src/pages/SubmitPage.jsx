@@ -7,6 +7,7 @@ import { buildResizedPath, DEFAULT_CARD_THUMB_SIZE } from "../lib/imagePaths";
 import { cropImageFileToBlob } from "../lib/imageCrop";
 import { computeAverageHashFromBlob } from "../lib/imageHash";
 import { DEFAULT_POB_STORES, formatPobStoreName } from "../lib/pobStore";
+import { appendCachedCollectionItem } from "../lib/userDataCache";
 import StorageImage from "../components/StorageImage";
 import Nav from "../components/Nav";
 const UNIT_MEMBER_NAME = "Unit";
@@ -101,6 +102,8 @@ export default function SubmitPage() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [keepAdding, setKeepAdding] = useState(true);
   const [duplicateCandidates, setDuplicateCandidates] = useState([]);
   const [duplicateLoading, setDuplicateLoading] = useState(false);
 
@@ -470,6 +473,23 @@ export default function SubmitPage() {
     applyZoomChange(cropZoom + (-e.deltaY * 0.0015));
   }
 
+  function resetForNextAdd() {
+    setMember("");
+    setUnitMembers([]);
+    setAlbumChoice("");
+    setNewAlbumName("");
+    setSourceName("");
+    setPobStore("");
+    setOtherType("");
+    setVersion("");
+    setPhotoFile(null);
+    setCropEnabled(true);
+    setCropZoom(1.15);
+    setCropX(0);
+    setCropY(0);
+    setDuplicateCandidates([]);
+  }
+
   async function addExistingPhotocard(uid, match) {
     const currentItemsSnap = await get(dbRef(db, `users/${uid}/collectionItems`));
     if (currentItemsSnap.exists()) {
@@ -491,7 +511,7 @@ export default function SubmitPage() {
     const userItemId = userItemRef.key;
     const now = serverTimestamp();
     const updates = {};
-    updates[`users/${uid}/collectionItems/${userItemId}`] = {
+    const userPayload = {
       id: userItemId,
       sourceItemId: match.id,
       collectionId: selectedCollectionId || "",
@@ -512,8 +532,15 @@ export default function SubmitPage() {
       createdAt: now,
       updatedAt: now,
     };
+    updates[`users/${uid}/collectionItems/${userItemId}`] = userPayload;
     updates[`users/${uid}/collectionItems/_placeholder`] = true;
     await update(dbRef(db), updates);
+    appendCachedCollectionItem(uid, { ...userPayload, createdAt: Date.now(), updatedAt: Date.now() });
+    if (keepAdding) {
+      setSuccess("Photocard added. You can add another.");
+      resetForNextAdd();
+      return;
+    }
     navigate(selectedCollectionId ? `/users/${uid}/collections/${selectedCollectionId}` : "/my-photocards");
   }
 
@@ -581,12 +608,13 @@ export default function SubmitPage() {
       const userItemId = userItemRef.key;
 
       const updates = {};
-      updates[`users/${uid}/collectionItems/${userItemId}`] = {
+      const userPayload = {
         ...base,
         id: userItemId,
         sourceItemId: itemId,
         collectionId: selectedCollectionId || "",
       };
+      updates[`users/${uid}/collectionItems/${userItemId}`] = userPayload;
 
       // Always publish to shared library so other users can find/add the card.
       updates[`items/${itemId}`] = base;
@@ -615,7 +643,13 @@ export default function SubmitPage() {
       }
 
       await update(dbRef(db), updates);
-      navigate(selectedCollectionId ? `/users/${uid}/collections/${selectedCollectionId}` : "/my-photocards");
+      appendCachedCollectionItem(uid, { ...userPayload, createdAt: Date.now(), updatedAt: Date.now() });
+      if (keepAdding) {
+        setSuccess("Photocard saved. Add the next one.");
+        resetForNextAdd();
+      } else {
+        navigate(selectedCollectionId ? `/users/${uid}/collections/${selectedCollectionId}` : "/my-photocards");
+      }
     } catch (err) {
       setError(err?.message || "Could not upload photocard.");
     } finally {
@@ -626,6 +660,7 @@ export default function SubmitPage() {
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
+    setSuccess("");
 
     const uid = auth.currentUser?.uid;
     if (!uid) return setError("You must be logged in.");
@@ -1253,6 +1288,16 @@ export default function SubmitPage() {
         )}
 
         {error && <p className="error-text">{error}</p>}
+        {success && <p className="success-text">{success}</p>}
+
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={keepAdding}
+            onChange={(e) => setKeepAdding(e.target.checked)}
+          />
+          Stay here and add another after save
+        </label>
 
         <button className="btn btn-primary" type="submit" disabled={loading}>
           {loading ? "Saving..." : "Add photocard"}
@@ -1274,6 +1319,7 @@ export default function SubmitPage() {
                     src={candidate.imageUrl || candidate.coverImage || ""}
                     thumbPath={candidate.thumbPath}
                     alt={candidate.title || "Photocard"}
+                    thumbOnly
                   />
                   <div>
                     <p className="photo-title">{candidate.title || "Untitled"}</p>

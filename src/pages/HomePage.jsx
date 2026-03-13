@@ -3,7 +3,6 @@ import { Link } from "react-router";
 import { ref, onValue, get } from "firebase/database";
 import { auth, db } from "../../firebase-config";
 import Nav from "../components/Nav";
-import StorageImage from "../components/StorageImage";
 
 function countByMember(items) {
   const map = new Map();
@@ -34,12 +33,10 @@ export default function HomePage() {
   const [collections, setCollections] = useState([]);
   const [items, setItems] = useState([]);
   const [username, setUsername] = useState("");
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const uid = auth.currentUser?.uid;
     if (!uid) {
-      setLoading(false);
       return;
     }
 
@@ -66,7 +63,6 @@ export default function HomePage() {
           .map((k) => ({ id: k, ...val[k] }))
           .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
         setItems(next);
-        setLoading(false);
       }),
     );
 
@@ -83,7 +79,6 @@ export default function HomePage() {
 
   const topMembers = useMemo(() => countByMember(items), [items]);
   const topGroups = useMemo(() => countByGroup(items), [items]);
-  const latestCards = useMemo(() => items.slice(0, 8), [items]);
 
   return (
     <main className="page-content with-nav-space home-page">
@@ -153,39 +148,6 @@ export default function HomePage() {
             ))}
           </ul>
         )}
-      </section>
-
-      <section className="section-block">
-        <h2>Latest uploads</h2>
-        {loading && <p className="muted">Loading...</p>}
-        {!loading && latestCards.length === 0 && (
-          <p className="muted">Start by uploading your first photocard.</p>
-        )}
-        <div className="card-grid">
-          {latestCards.map((item) => (
-            <Link
-              key={item.id}
-              to={
-                item.collectionId
-                  ? `/users/${auth.currentUser?.uid}/collections/${item.collectionId}/items/${item.id}`
-                  : `/items/${item.id}`
-              }
-              className="photo-card"
-            >
-              <StorageImage
-                src={item.imageUrl || item.coverImage || ""}
-                thumbPath={item.thumbPath}
-                alt={item.title || "Photocard"}
-              />
-              <div>
-                <p className="photo-title">{item.title || "Untitled"}</p>
-                <p className="photo-meta">
-                  {item.group || "Unknown group"} - {item.member || "Unknown"}
-                </p>
-              </div>
-            </Link>
-          ))}
-        </div>
       </section>
 
       <Nav />

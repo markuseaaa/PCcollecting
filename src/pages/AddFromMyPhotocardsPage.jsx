@@ -5,10 +5,6 @@ import { auth, db } from "../../firebase-config";
 import StorageImage from "../components/StorageImage";
 import Nav from "../components/Nav";
 
-function norm(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
 export default function AddFromMyPhotocardsPage() {
   const { collectionId } = useParams();
   const [collection, setCollection] = useState(null);
@@ -138,6 +134,7 @@ export default function AddFromMyPhotocardsPage() {
               src={item.imageUrl || item.coverImage || ""}
               thumbPath={item.thumbPath}
               alt={item.title || "Photocard"}
+              thumbOnly
             />
             <div>
               <p className="photo-title">{item.title || "Untitled"}</p>
@@ -162,4 +159,3 @@ export default function AddFromMyPhotocardsPage() {
     </main>
   );
 }
-

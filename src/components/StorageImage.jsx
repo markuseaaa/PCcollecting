@@ -10,6 +10,7 @@ export default function StorageImage({
   alt,
   className,
   loading = "lazy",
+  thumbOnly = false,
 }) {
   const [resolvedThumbUrl, setResolvedThumbUrl] = useState("");
 
@@ -48,7 +49,7 @@ export default function StorageImage({
     };
   }, [thumbPath]);
 
-  const finalSrc = resolvedThumbUrl || fallbackSrc;
+  const finalSrc = resolvedThumbUrl || (thumbOnly ? "" : fallbackSrc);
   if (!finalSrc) {
     return <div className={`image-placeholder ${className || ""}`.trim()} />;
   }

@@ -3,6 +3,14 @@ import { Link, useParams } from "react-router";
 import { ref, get, remove } from "firebase/database";
 import { auth, db } from "../../firebase-config";
 import { formatRarityLabel } from "../lib/rarity";
+import {
+  getCachedCollectionItems,
+  getCachedCollections,
+  removeCachedCollectionItem,
+  setCachedCollectionItems,
+  setCachedCollections,
+  upsertCachedCollection,
+} from "../lib/userDataCache";
 import Nav from "../components/Nav";
 import StorageImage from "../components/StorageImage";
 
@@ -11,7 +19,7 @@ function norm(value) {
 }
 
 export default function CollectionPage() {
-  const { collectionId } = useParams();
+  const { uid: routeUid, collectionId } = useParams();
   const [collection, setCollection] = useState(null);
   const [items, setItems] = useState([]);
   const [query, setQuery] = useState("");
@@ -20,6 +28,7 @@ export default function CollectionPage() {
   const [rarityFilter, setRarityFilter] = useState("");
   const [sortBy, setSortBy] = useState("newest");
   const [removingId, setRemovingId] = useState("");
+  const [visibleCount, setVisibleCount] = useState(24);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -27,23 +36,56 @@ export default function CollectionPage() {
     let alive = true;
 
     async function load() {
-      const uid = auth.currentUser?.uid;
-      if (!uid) {
+      const viewerUid = auth.currentUser?.uid;
+      if (!viewerUid) {
         setError("You must be logged in.");
         setLoading(false);
         return;
       }
+      const ownerUid = routeUid || viewerUid;
+      const isOwner = ownerUid === viewerUid;
 
       try {
-        const colSnap = await get(ref(db, `users/${uid}/collections/${collectionId}`));
+        const cachedCollections = getCachedCollections(ownerUid);
+        const cachedItems = getCachedCollectionItems(ownerUid);
+        const cachedCollection = Array.isArray(cachedCollections)
+          ? cachedCollections.find((entry) => String(entry?.id || "") === String(collectionId))
+          : null;
+        if (cachedCollection && cachedItems) {
+          const visibility = String(cachedCollection.visibility || "public").toLowerCase();
+          if (!isOwner && visibility === "private") {
+            setError("This collection is private.");
+            setLoading(false);
+            return;
+          }
+          const filteredItems = cachedItems
+            .filter((item) => String(item.collectionId || "") === String(collectionId))
+            .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+          setCollection(cachedCollection);
+          setItems(filteredItems);
+          setLoading(false);
+          return;
+        }
+
+        const colSnap = await get(ref(db, `users/${ownerUid}/collections/${collectionId}`));
         if (!colSnap.exists()) {
           setError("Collection not found.");
           setLoading(false);
           return;
         }
+        const collectionValue = colSnap.val() || {};
+        const visibility = String(collectionValue.visibility || "public").toLowerCase();
+        if (!isOwner && visibility === "private") {
+          setError("This collection is private.");
+          setLoading(false);
+          return;
+        }
 
-        const itemSnap = await get(ref(db, `users/${uid}/collectionItems`));
+        const itemSnap = await get(ref(db, `users/${ownerUid}/collectionItems`));
         const raw = itemSnap.exists() ? itemSnap.val() : {};
+        const allItems = Object.keys(raw || {})
+          .filter((k) => !k.startsWith("_"))
+          .map((k) => ({ id: k, ...raw[k] }));
         const nextItems = Object.keys(raw || {})
           .filter((k) => !k.startsWith("_"))
           .map((k) => ({ id: k, ...raw[k] }))
@@ -51,8 +93,16 @@ export default function CollectionPage() {
           .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
 
         if (!alive) return;
-        setCollection(colSnap.val() || {});
+        setCollection(collectionValue);
         setItems(nextItems);
+        upsertCachedCollection(ownerUid, { id: collectionId, ...collectionValue });
+        setCachedCollectionItems(ownerUid, allItems);
+        const existingCollections = getCachedCollections(ownerUid, 365 * 24 * 60 * 60 * 1000) || [];
+        const mergedCollections = [
+          { id: collectionId, ...collectionValue },
+          ...existingCollections.filter((entry) => String(entry?.id || "") !== String(collectionId)),
+        ];
+        setCachedCollections(ownerUid, mergedCollections);
         setLoading(false);
       } catch (err) {
         if (!alive) return;
@@ -65,7 +115,7 @@ export default function CollectionPage() {
     return () => {
       alive = false;
     };
-  }, [collectionId]);
+  }, [collectionId, routeUid]);
 
   const memberOptions = useMemo(() => {
     const vals = new Set(items.map((item) => String(item.member || "").trim()).filter(Boolean));
@@ -115,15 +165,26 @@ export default function CollectionPage() {
     return filtered;
   }, [items, query, memberFilter, albumFilter, rarityFilter, sortBy]);
 
+  const visibleItems = useMemo(
+    () => filteredAndSorted.slice(0, visibleCount),
+    [filteredAndSorted, visibleCount]
+  );
+
+  useEffect(() => {
+    setVisibleCount(24);
+  }, [query, memberFilter, albumFilter, rarityFilter, sortBy]);
+
   async function handleRemove(itemId) {
-    const uid = auth.currentUser?.uid;
-    if (!uid) return;
+    const viewerUid = auth.currentUser?.uid;
+    if (!viewerUid) return;
+    if (routeUid && routeUid !== viewerUid) return;
     if (!window.confirm("Remove this photocard from this collection?")) return;
 
     setRemovingId(itemId);
     try {
-      await remove(ref(db, `users/${uid}/collectionItems/${itemId}`));
+      await remove(ref(db, `users/${viewerUid}/collectionItems/${itemId}`));
       setItems((prev) => prev.filter((item) => item.id !== itemId));
+      removeCachedCollectionItem(viewerUid, itemId);
     } catch (err) {
       setError(err?.message || "Could not remove photocard.");
     } finally {
@@ -148,7 +209,9 @@ export default function CollectionPage() {
     );
   }
 
-  const uid = auth.currentUser?.uid;
+  const viewerUid = auth.currentUser?.uid;
+  const ownerUid = routeUid || viewerUid;
+  const isOwner = ownerUid === viewerUid;
 
   return (
     <main className="page-content with-nav-space">
@@ -157,20 +220,22 @@ export default function CollectionPage() {
           <h1>{collection?.title || "Collection"}</h1>
           <p className="muted">{collection?.description || "Photocard binder"}</p>
         </div>
-        <div className="section-actions">
-          <Link
-            to={`/users/${uid}/collections/${collectionId}/edit`}
-            className="btn btn-ghost small"
-          >
-            Edit collection
-          </Link>
-          <Link
-            to={`/users/${uid}/collections/${collectionId}/add-existing`}
-            className="btn btn-primary small"
-          >
-            Add
-          </Link>
-        </div>
+        {isOwner ? (
+          <div className="section-actions">
+            <Link
+              to={`/users/${ownerUid}/collections/${collectionId}/edit`}
+              className="btn btn-ghost small"
+            >
+              Edit collection
+            </Link>
+            <Link
+              to={`/users/${ownerUid}/collections/${collectionId}/add-existing`}
+              className="btn btn-primary small"
+            >
+              Add
+            </Link>
+          </div>
+        ) : null}
       </section>
 
       <section className="section-block">
@@ -241,16 +306,21 @@ export default function CollectionPage() {
       )}
 
       <div className="card-grid">
-        {filteredAndSorted.map((item) => (
+        {visibleItems.map((item) => (
           <article key={item.id} className="photo-card static">
             <Link
-              to={`/users/${uid}/collections/${collectionId}/items/${item.id}`}
+              to={
+                isOwner
+                  ? `/users/${ownerUid}/collections/${collectionId}/items/${item.id}`
+                  : `/items/${item.sourceItemId || item.id}`
+              }
               className="photo-card-link"
             >
               <StorageImage
                 src={item.imageUrl || item.coverImage || ""}
                 thumbPath={item.thumbPath}
                 alt={item.title || "Photocard"}
+                thumbOnly
               />
               <div>
                 <p className="photo-title">{item.title || "Untitled"}</p>
@@ -264,18 +334,32 @@ export default function CollectionPage() {
               </div>
             </Link>
             <div className="card-actions">
-              <button
-                type="button"
-                className="btn btn-ghost small danger-btn"
-                onClick={() => handleRemove(item.id)}
-                disabled={removingId === item.id}
-              >
-                {removingId === item.id ? "Removing..." : "Remove"}
-              </button>
+              {isOwner ? (
+                <button
+                  type="button"
+                  className="btn btn-ghost small danger-btn"
+                  onClick={() => handleRemove(item.id)}
+                  disabled={removingId === item.id}
+                >
+                  {removingId === item.id ? "Removing..." : "Remove"}
+                </button>
+              ) : null}
             </div>
           </article>
         ))}
       </div>
+
+      {visibleItems.length < filteredAndSorted.length ? (
+        <div className="center-action">
+          <button
+            type="button"
+            className="btn btn-ghost small"
+            onClick={() => setVisibleCount((prev) => prev + 24)}
+          >
+            Load more
+          </button>
+        </div>
+      ) : null}
 
       <Nav />
     </main>

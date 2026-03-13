@@ -61,11 +61,17 @@ export default function AllCollectionsPage() {
               src={collection.coverImage || ""}
               thumbPath={collection.coverThumbPath}
               alt={collection.title || "Collection"}
+              thumbOnly
             />
             <div>
               <p className="collection-title">{collection.title || "Untitled"}</p>
               <p className="collection-description">
                 {collection.description || "Photocard binder"}
+              </p>
+              <p className="collection-visibility muted">
+                {String(collection.visibility || "public").toLowerCase() === "private"
+                  ? "Private"
+                  : "Public"}
               </p>
             </div>
           </Link>

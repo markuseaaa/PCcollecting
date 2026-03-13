@@ -12,6 +12,7 @@ export default function EditCollectionPage() {
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [visibility, setVisibility] = useState("public");
   const [currentCoverImage, setCurrentCoverImage] = useState("");
   const [currentCoverImagePath, setCurrentCoverImagePath] = useState("");
   const [currentCoverThumbPath, setCurrentCoverThumbPath] = useState("");
@@ -48,6 +49,7 @@ export default function EditCollectionPage() {
         setCurrentCoverImage(String(value.coverImage || ""));
         setCurrentCoverImagePath(String(value.coverImagePath || ""));
         setCurrentCoverThumbPath(String(value.coverThumbPath || ""));
+        setVisibility(String(value.visibility || "public"));
       } catch (err) {
         if (!alive) return;
         setError(err?.message || "Could not load collection.");
@@ -91,6 +93,7 @@ export default function EditCollectionPage() {
         [`users/${uid}/collections/${collectionId}/coverImage`]: coverImage,
         [`users/${uid}/collections/${collectionId}/coverImagePath`]: coverImagePath,
         [`users/${uid}/collections/${collectionId}/coverThumbPath`]: coverThumbPath,
+        [`users/${uid}/collections/${collectionId}/visibility`]: visibility,
         [`users/${uid}/collections/${collectionId}/updatedAt`]: serverTimestamp(),
       };
 
@@ -175,6 +178,14 @@ export default function EditCollectionPage() {
           </label>
 
           <label>
+            Visibility
+            <select value={visibility} onChange={(e) => setVisibility(e.target.value)}>
+              <option value="public">Public</option>
+              <option value="private">Private</option>
+            </select>
+          </label>
+
+          <label>
             Replace cover image (optional)
             <input
               type="file"
@@ -206,4 +217,3 @@ export default function EditCollectionPage() {
     </main>
   );
 }
-

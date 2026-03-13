@@ -16,7 +16,7 @@ export default function AddItem() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(true);
-  const [visibleCount, setVisibleCount] = useState(40);
+  const [visibleCount, setVisibleCount] = useState(24);
 
   useEffect(() => {
     let alive = true;
@@ -93,7 +93,7 @@ export default function AddItem() {
   );
 
   useEffect(() => {
-    setVisibleCount(40);
+    setVisibleCount(24);
   }, [query]);
 
   async function addToCollection(item) {
@@ -227,6 +227,7 @@ export default function AddItem() {
               src={item.imageUrl || item.coverImage || ""}
               thumbPath={item.thumbPath}
               alt={item.title || "Photocard"}
+              thumbOnly
             />
             <div>
               <p className="photo-title">{item.title || "Untitled"}</p>
@@ -255,7 +256,7 @@ export default function AddItem() {
           <button
             type="button"
             className="btn btn-ghost small"
-            onClick={() => setVisibleCount((prev) => prev + 40)}
+            onClick={() => setVisibleCount((prev) => prev + 24)}
           >
             Load more
           </button>
