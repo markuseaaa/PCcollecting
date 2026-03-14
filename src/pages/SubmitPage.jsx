@@ -69,6 +69,21 @@ function normalizeUnitMembers(values) {
   return Array.from(new Set(normalized)).sort((a, b) => a.localeCompare(b));
 }
 
+function getNamesFromCatalogMap(value) {
+  if (!value || typeof value !== "object") return [];
+  return Object.values(value)
+    .map((entry) => {
+      if (typeof entry === "string") return entry;
+      if (entry && typeof entry === "object") {
+        if (typeof entry.name === "string") return entry.name;
+        if (typeof entry.value === "string") return entry.value;
+      }
+      return "";
+    })
+    .map((name) => String(name || "").trim())
+    .filter(Boolean);
+}
+
 export default function SubmitPage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
@@ -283,33 +298,42 @@ export default function SubmitPage() {
     if (albumChoice === "__new") return newAlbumName.trim();
     return albumChoice.trim();
   }, [supportsAlbumLink, albumChoice, newAlbumName]);
+  const normalizedResolvedAlbum = normalize(resolvedAlbum);
 
   const versionOptions = useMemo(() => {
     if (!normalizedGroup) return [];
-    const fromCatalog = matchedCatalogGroupKey
-      ? Object.values(groupCatalog[matchedCatalogGroupKey]?.versions || {})
-          .map((v) => String(v || "").trim())
-          .filter(Boolean)
-      : [];
+    const groupNode = matchedCatalogGroupKey ? groupCatalog[matchedCatalogGroupKey] || {} : {};
+    const groupVersions = getNamesFromCatalogMap(groupNode.versions);
 
     const fromItems = existingItems
       .filter((item) => normalize(item.group) === normalizedGroup)
+      .filter((item) =>
+        normalizedResolvedAlbum ? normalize(item.album) === normalizedResolvedAlbum : true
+      )
       .map((item) => String(item.version || "").trim())
       .filter(Boolean);
 
-    return dedupeNamesCaseInsensitive([...fromCatalog, ...fromItems]);
-  }, [groupCatalog, existingItems, normalizedGroup, matchedCatalogGroupKey]);
+    if (!normalizedResolvedAlbum) {
+      return dedupeNamesCaseInsensitive([...groupVersions, ...fromItems]);
+    }
+
+    const albumKey = toCatalogKey(resolvedAlbum);
+    const albumVersions = getNamesFromCatalogMap(groupNode?.albumVersions?.[albumKey]);
+    return dedupeNamesCaseInsensitive([...albumVersions, ...fromItems]);
+  }, [
+    groupCatalog,
+    existingItems,
+    normalizedGroup,
+    matchedCatalogGroupKey,
+    normalizedResolvedAlbum,
+    resolvedAlbum,
+  ]);
 
   const normalizedVersion = normalize(version);
   const hasVersionInCatalog = useMemo(() => {
-    if (!normalizedGroup || !normalizedVersion || !matchedCatalogGroupKey) {
-      return false;
-    }
-    const versions = Object.values(groupCatalog[matchedCatalogGroupKey]?.versions || {}).map((v) =>
-      normalize(v)
-    );
-    return versions.includes(normalizedVersion);
-  }, [groupCatalog, matchedCatalogGroupKey, normalizedGroup, normalizedVersion]);
+    if (!normalizedGroup || !normalizedVersion) return false;
+    return versionOptions.some((name) => normalize(name) === normalizedVersion);
+  }, [normalizedGroup, normalizedVersion, versionOptions]);
 
   const versionSuggestions = useMemo(() => {
     if (!normalizedGroup) return [];
@@ -642,11 +666,16 @@ export default function SubmitPage() {
         const versionName = version.trim();
         const versionKey = toCatalogKey(versionName);
         const unitKey = toCatalogKey(UNIT_MEMBER_NAME);
+        const albumKey = toCatalogKey(resolvedAlbum);
         if (groupKey && versionKey) {
           updates[`meta/groupCatalog/${groupKey}/name`] =
             groupCatalog[groupKey]?.name || group.trim();
           updates[`meta/groupCatalog/${groupKey}/members/${unitKey}`] = UNIT_MEMBER_NAME;
           updates[`meta/groupCatalog/${groupKey}/versions/${versionKey}`] = versionName;
+          if (resolvedAlbum && albumKey) {
+            updates[`meta/groupCatalog/${groupKey}/albumVersions/${albumKey}/${versionKey}`] =
+              versionName;
+          }
         }
       }
 
@@ -844,6 +873,7 @@ export default function SubmitPage() {
     const versionName = version.trim();
     const groupKey = matchedCatalogGroupKey || toCatalogKey(groupName);
     const versionKey = toCatalogKey(versionName);
+    const albumKey = toCatalogKey(resolvedAlbum);
     const unitKey = toCatalogKey(UNIT_MEMBER_NAME);
 
     if (!groupName || !versionName) return;
@@ -857,6 +887,10 @@ export default function SubmitPage() {
         [`meta/groupCatalog/${groupKey}/versions/${versionKey}`]: versionName,
         [`meta/groupCatalog/${groupKey}/updatedAt`]: serverTimestamp(),
       };
+      if (resolvedAlbum && albumKey) {
+        updates[`meta/groupCatalog/${groupKey}/albumVersions/${albumKey}/${versionKey}`] =
+          versionName;
+      }
       await update(dbRef(db), updates);
 
       setGroupCatalog((prev) => ({
@@ -878,6 +912,14 @@ export default function SubmitPage() {
           },
           albumVersions: {
             ...(prev[groupKey]?.albumVersions || {}),
+            ...(resolvedAlbum && albumKey
+              ? {
+                  [albumKey]: {
+                    ...((prev[groupKey]?.albumVersions || {})[albumKey] || {}),
+                    [versionKey]: versionName,
+                  },
+                }
+              : {}),
           },
         },
       }));
