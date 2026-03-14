@@ -680,6 +680,11 @@ export default function SubmitPage() {
       }
 
       await update(dbRef(db), updates);
+      setExistingItems((prev) => {
+        const nextItem = { ...base, id: itemId };
+        if (prev.some((item) => String(item.id) === String(itemId))) return prev;
+        return [nextItem, ...prev];
+      });
       appendCachedCollectionItem(uid, { ...userPayload, createdAt: Date.now(), updatedAt: Date.now() });
       if (keepAdding) {
         setSuccess("Photocard saved. Add the next one.");
