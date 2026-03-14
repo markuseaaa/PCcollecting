@@ -124,19 +124,30 @@ export default function EditCollectionPage() {
     setDeleting(true);
     setError("");
     try {
-      const itemSnap = await get(dbRef(db, `users/${uid}/collectionItems`));
+      const [itemIdsSnap, ownedSnap] = await Promise.all([
+        get(dbRef(db, `users/${uid}/collections/${collectionId}/itemIds`)),
+        get(dbRef(db, `users/${uid}/ownedItems`)),
+      ]);
       const updates = {
         [`users/${uid}/collections/${collectionId}`]: null,
       };
 
-      if (itemSnap.exists()) {
-        itemSnap.forEach((ch) => {
-          const value = ch.val() || {};
-          if (value.collectionId === collectionId) {
-            updates[`users/${uid}/collectionItems/${ch.key}/collectionId`] = "";
-            updates[`users/${uid}/collectionItems/${ch.key}/updatedAt`] = serverTimestamp();
-          }
-        });
+      const itemIdsVal = itemIdsSnap.exists() ? itemIdsSnap.val() : {};
+      const ownedVal = ownedSnap.exists() ? ownedSnap.val() : {};
+      for (const sourceItemId of Object.keys(itemIdsVal || {})) {
+        if (String(sourceItemId).startsWith("_")) continue;
+        updates[`users/${uid}/ownedItems/${sourceItemId}/collectionId`] = "";
+        updates[`users/${uid}/ownedItems/${sourceItemId}/updatedAt`] = serverTimestamp();
+      }
+
+      for (const sourceItemId of Object.keys(ownedVal || {})) {
+        if (String(sourceItemId).startsWith("_")) continue;
+        const value = ownedVal[sourceItemId] || {};
+        if (String(value.collectionId || "") === String(collectionId)) {
+          updates[`users/${uid}/ownedItems/${sourceItemId}/collectionId`] = "";
+          updates[`users/${uid}/ownedItems/${sourceItemId}/updatedAt`] = serverTimestamp();
+          updates[`users/${uid}/collections/${collectionId}/itemIds/${sourceItemId}`] = null;
+        }
       }
 
       await update(dbRef(db), updates);

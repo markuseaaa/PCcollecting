@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { ref, get, update, serverTimestamp } from "firebase/database";
 import { auth, db } from "../../firebase-config";
+import { buildOwnershipAssignmentUpdates, resolveSourceItemId } from "../lib/ownership";
 import StorageImage from "../components/StorageImage";
 import Nav from "../components/Nav";
 
@@ -26,9 +27,9 @@ export default function AddFromMyPhotocardsPage() {
       }
 
       try {
-        const [colSnap, itemSnap] = await Promise.all([
+        const [colSnap, ownedSnap] = await Promise.all([
           get(ref(db, `users/${uid}/collections/${collectionId}`)),
-          get(ref(db, `users/${uid}/collectionItems`)),
+          get(ref(db, `users/${uid}/ownedItems`)),
         ]);
 
         if (!alive) return;
@@ -38,12 +39,30 @@ export default function AddFromMyPhotocardsPage() {
           return;
         }
 
-        const raw = itemSnap.exists() ? itemSnap.val() : {};
-        const list = Object.keys(raw || {})
+        const ownedRaw = ownedSnap.exists() ? ownedSnap.val() : {};
+        const ownedRefs = Object.keys(ownedRaw || {})
           .filter((k) => !k.startsWith("_"))
-          .map((k) => ({ id: k, ...raw[k] }))
-          .filter((item) => String(item.collectionId || "") !== String(collectionId))
+          .map((k) => ({ itemId: k, ...ownedRaw[k] }))
+          .filter((item) => String(item.collectionId || "") !== String(collectionId));
+        const ownedSourceSnaps = await Promise.all(
+          ownedRefs.map((entry) => get(ref(db, `items/${entry.itemId}`)))
+        );
+        const ownedList = ownedRefs
+          .map((entry, index) => {
+            const source = ownedSourceSnaps[index]?.exists() ? ownedSourceSnaps[index].val() : null;
+            if (!source) return null;
+            return {
+              id: entry.itemId,
+              sourceItemId: entry.itemId,
+              collectionId: String(entry.collectionId || ""),
+              createdAt: entry.createdAt || source.createdAt || 0,
+              updatedAt: entry.updatedAt || source.updatedAt || source.createdAt || 0,
+              ...source,
+            };
+          })
+          .filter(Boolean)
           .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+        const list = ownedList;
 
         setCollection(colSnap.val() || {});
         setItems(list);
@@ -78,10 +97,23 @@ export default function AddFromMyPhotocardsPage() {
     setError("");
 
     try {
-      await update(ref(db), {
-        [`users/${uid}/collectionItems/${itemId}/collectionId`]: collectionId,
-        [`users/${uid}/collectionItems/${itemId}/updatedAt`]: serverTimestamp(),
-      });
+      const target = items.find((entry) => String(entry.id) === String(itemId)) || {};
+      const sourceItemId = resolveSourceItemId(target, itemId);
+      const previousCollectionId = String(target.collectionId || "");
+      const now = serverTimestamp();
+      const updates = {};
+      Object.assign(
+        updates,
+        buildOwnershipAssignmentUpdates({
+          uid,
+          itemId: sourceItemId,
+          previousCollectionId,
+          nextCollectionId: collectionId,
+          updatedAt: now,
+          itemData: target,
+        })
+      );
+      await update(ref(db), updates);
 
       setItems((prev) => prev.filter((item) => item.id !== itemId));
     } catch (err) {

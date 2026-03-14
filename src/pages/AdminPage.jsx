@@ -258,24 +258,30 @@ export default function AdminPage() {
 
     usersSnap.forEach((userCh) => {
       const uid = userCh.key;
-      const collItemsCh = userCh.child("collectionItems");
-      if (!collItemsCh.exists()) return;
+      const ownedItemsCh = userCh.child("ownedItems");
+      if (ownedItemsCh.exists()) {
+        ownedItemsCh.forEach((ownedCh) => {
+          const sourceItemId = String(ownedCh.key || "");
+          const val = ownedCh.val() || {};
+          const isMatch =
+            sourceSet.has(sourceItemId) || sourceSet.has(String(val.itemId || ""));
+          if (!isMatch) return;
 
-      collItemsCh.forEach((itemCh) => {
-        const val = itemCh.val() || {};
-        const isMatch = sourceSet.has(val.sourceItemId) || sourceSet.has(itemCh.key);
-        if (!isMatch) return;
-
-        const userItemPath = `users/${uid}/collectionItems/${itemCh.key}`;
-        if (mode === "delete") {
-          updates[userItemPath] = null;
-        } else {
-          for (const field of fields) {
-            updates[`${userItemPath}/${field}`] = patch[field] ?? "";
+          const ownedPath = `users/${uid}/ownedItems/${sourceItemId}`;
+          if (mode === "delete") {
+            const collectionId = String(val.collectionId || "").trim();
+            updates[ownedPath] = null;
+            if (collectionId) {
+              updates[`users/${uid}/collections/${collectionId}/itemIds/${sourceItemId}`] = null;
+            }
+          } else {
+            for (const field of fields) {
+              updates[`${ownedPath}/${field}`] = patch[field] ?? "";
+            }
+            updates[`${ownedPath}/updatedAt`] = serverTimestamp();
           }
-          updates[`${userItemPath}/updatedAt`] = serverTimestamp();
-        }
-      });
+        });
+      }
     });
 
     return updates;

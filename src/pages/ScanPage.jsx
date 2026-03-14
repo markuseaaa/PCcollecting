@@ -3,7 +3,6 @@ import { Link } from "react-router";
 import {
   ref as dbRef,
   get,
-  push,
   query as dbQuery,
   orderByChild,
   equalTo,
@@ -19,6 +18,7 @@ import {
   hammingDistance,
 } from "../lib/imageHash";
 import { cropImageFileToBlob } from "../lib/imageCrop";
+import { buildOwnershipAssignmentUpdates } from "../lib/ownership";
 import Nav from "../components/Nav";
 import StorageImage from "../components/StorageImage";
 
@@ -64,9 +64,9 @@ export default function ScanPage() {
       const uid = auth.currentUser?.uid;
       if (!uid) return;
 
-      const [colSnap, ownedSnap, catalogSnap] = await Promise.all([
+      const [colSnap, ownedRefsSnap, catalogSnap] = await Promise.all([
         get(dbRef(db, `users/${uid}/collections`)),
-        get(dbRef(db, `users/${uid}/collectionItems`)),
+        get(dbRef(db, `users/${uid}/ownedItems`)),
         get(dbRef(db, "meta/groupCatalog")),
       ]);
 
@@ -79,15 +79,11 @@ export default function ScanPage() {
       setCollections(colList);
       setSelectedCollectionId("");
 
-      const ownedVal = ownedSnap.exists() ? ownedSnap.val() : {};
       const owned = new Set();
-      for (const key of Object.keys(ownedVal || {})) {
+      const ownedRefsVal = ownedRefsSnap.exists() ? ownedRefsSnap.val() : {};
+      for (const key of Object.keys(ownedRefsVal || {})) {
         if (key.startsWith("_")) continue;
-        const entry = ownedVal[key] || {};
-        const sourceId = String(entry.sourceItemId || "").trim();
-        const fallbackId = String(entry.id || "").trim();
-        if (sourceId) owned.add(sourceId);
-        else if (fallbackId) owned.add(fallbackId);
+        owned.add(String(key));
       }
       setOwnedItemIds(Array.from(owned));
 
@@ -329,52 +325,23 @@ export default function ScanPage() {
 
     setAddingId(item.id);
     try {
-      const currentItemsSnap = await get(dbRef(db, `users/${uid}/collectionItems`));
-      if (currentItemsSnap.exists()) {
-        let duplicate = false;
-        currentItemsSnap.forEach((ch) => {
-          const val = ch.val() || {};
-          if (val.sourceItemId === item.id || ch.key === item.id) {
-            duplicate = true;
-            return true;
-          }
-          return false;
-        });
-        if (duplicate) {
-          setError("This photocard is already in your My Photocards.");
-          setAddingId("");
-          return;
-        }
+      const ownedRefSnap = await get(dbRef(db, `users/${uid}/ownedItems/${item.id}`));
+      if (ownedRefSnap.exists()) {
+        setError("This photocard is already in your My Photocards.");
+        setAddingId("");
+        return;
       }
 
-      const newRef = push(dbRef(db, `users/${uid}/collectionItems`));
-      const newId = newRef.key;
       const now = serverTimestamp();
 
-      const payload = {
-        id: newId,
-        sourceItemId: item.id,
-        collectionId: targetCollectionId,
-        title: item.title || "",
-        group: item.group || "",
-        member: item.member || "",
-        album: item.album || "",
-        rarity: item.rarity || "",
-        version: item.version || "",
-        sourceName: item.sourceName || "",
-        pobStore: item.pobStore || "",
-        otherType: item.otherType || "",
-        imageUrl: item.imageUrl || "",
-        imagePath: item.imagePath || "",
-        thumbPath: item.thumbPath || "",
-        imgHash: item.imgHash || "",
-        createdAt: now,
-        updatedAt: now,
-      };
-
       await update(dbRef(db), {
-        [`users/${uid}/collectionItems/${newId}`]: payload,
-        [`users/${uid}/collectionItems/_placeholder`]: true,
+        ...buildOwnershipAssignmentUpdates({
+          uid,
+          itemId: item.id,
+          nextCollectionId: targetCollectionId,
+          createdAt: now,
+          updatedAt: now,
+        }),
       });
       setOwnedItemIds((prev) => (prev.includes(item.id) ? prev : [...prev, item.id]));
       setScanFile(null);

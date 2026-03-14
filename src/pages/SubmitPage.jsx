@@ -22,6 +22,7 @@ import { cropImageFileToBlob } from "../lib/imageCrop";
 import { computeAverageHashFromBlob } from "../lib/imageHash";
 import { DEFAULT_POB_STORES, formatPobStoreName } from "../lib/pobStore";
 import { appendCachedCollectionItem } from "../lib/userDataCache";
+import { buildOwnershipAssignmentUpdates } from "../lib/ownership";
 import StorageImage from "../components/StorageImage";
 import Nav from "../components/Nav";
 const UNIT_MEMBER_NAME = "Unit";
@@ -592,52 +593,33 @@ export default function SubmitPage() {
   }
 
   async function addExistingPhotocard(uid, match) {
-    const currentItemsSnap = await get(dbRef(db, `users/${uid}/collectionItems`));
-    if (currentItemsSnap.exists()) {
-      let alreadyOwned = false;
-      currentItemsSnap.forEach((ch) => {
-        const val = ch.val() || {};
-        if (val.sourceItemId === match.id || ch.key === match.id) {
-          alreadyOwned = true;
-          return true;
-        }
-        return false;
-      });
-      if (alreadyOwned) {
-        throw new Error("You already have this photocard in My Photocards.");
-      }
+    const ownedRefSnap = await get(dbRef(db, `users/${uid}/ownedItems/${match.id}`));
+    if (ownedRefSnap.exists()) {
+      throw new Error("You already have this photocard in My Photocards.");
     }
 
-    const userItemRef = push(dbRef(db, `users/${uid}/collectionItems`));
-    const userItemId = userItemRef.key;
     const now = serverTimestamp();
     const updates = {};
-    const userPayload = {
-      id: userItemId,
-      sourceItemId: match.id,
-      collectionId: selectedCollectionId || "",
-      title: match.title || "",
-      group: match.group || "",
-      member: match.member || "",
-      unitMembers: Array.isArray(match.unitMembers) ? match.unitMembers : [],
-      album: match.album || "",
-      rarity: match.rarity || "",
-      sourceName: match.sourceName || "",
-      pobStore: match.pobStore || "",
-      otherType: match.otherType || "",
-      version: match.version || "",
-      imageUrl: match.imageUrl || "",
-      imagePath: match.imagePath || "",
-      thumbPath: match.thumbPath || "",
-      imgHash: match.imgHash || "",
-      createdAt: now,
-      updatedAt: now,
-    };
-    updates[`users/${uid}/collectionItems/${userItemId}`] = userPayload;
-    updates[`users/${uid}/collectionItems/_placeholder`] = true;
+    Object.assign(
+      updates,
+      buildOwnershipAssignmentUpdates({
+        uid,
+        itemId: match.id,
+        nextCollectionId: selectedCollectionId || "",
+        createdAt: now,
+        updatedAt: now,
+      })
+    );
     await update(dbRef(db), updates);
     groupItemsCacheRef.current.clear();
-    appendCachedCollectionItem(uid, { ...userPayload, createdAt: Date.now(), updatedAt: Date.now() });
+    appendCachedCollectionItem(uid, {
+      ...match,
+      id: match.id,
+      sourceItemId: match.id,
+      collectionId: selectedCollectionId || "",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
     if (keepAdding) {
       setSuccess("Photocard added. You can add another.");
       resetForNextAdd();
@@ -706,17 +688,17 @@ export default function SubmitPage() {
         updatedAt: now,
       };
 
-      const userItemRef = push(dbRef(db, `users/${uid}/collectionItems`));
-      const userItemId = userItemRef.key;
-
       const updates = {};
-      const userPayload = {
-        ...base,
-        id: userItemId,
-        sourceItemId: itemId,
-        collectionId: selectedCollectionId || "",
-      };
-      updates[`users/${uid}/collectionItems/${userItemId}`] = userPayload;
+      Object.assign(
+        updates,
+        buildOwnershipAssignmentUpdates({
+          uid,
+          itemId,
+          nextCollectionId: selectedCollectionId || "",
+          createdAt: now,
+          updatedAt: now,
+        })
+      );
 
       // Always publish to shared library so other users can find/add the card.
       updates[`items/${itemId}`] = base;
@@ -756,7 +738,14 @@ export default function SubmitPage() {
         if (prev.some((item) => String(item.id) === String(itemId))) return prev;
         return [nextItem, ...prev];
       });
-      appendCachedCollectionItem(uid, { ...userPayload, createdAt: Date.now(), updatedAt: Date.now() });
+      appendCachedCollectionItem(uid, {
+        ...base,
+        id: itemId,
+        sourceItemId: itemId,
+        collectionId: selectedCollectionId || "",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
       if (keepAdding) {
         setSuccess("Photocard saved. Add the next one.");
         resetForNextAdd();

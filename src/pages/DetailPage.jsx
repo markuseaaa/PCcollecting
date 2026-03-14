@@ -23,21 +23,20 @@ export default function DetailPage() {
         let found = null;
 
         if (uid && id) {
-          const userItem = await get(ref(db, `users/${uid}/collectionItems/${id}`));
-          if (userItem.exists()) found = { id, ...userItem.val() };
-        }
-
-        if (!found && auth.currentUser?.uid && id) {
-          const snap = await get(ref(db, `users/${auth.currentUser.uid}/collectionItems`));
-          if (snap.exists()) {
-            snap.forEach((ch) => {
-              const val = ch.val() || {};
-              if (ch.key === id || val.sourceItemId === id) {
-                found = { id: ch.key, ...val };
-                return true;
-              }
-              return false;
-            });
+          const ownedItem = await get(ref(db, `users/${uid}/ownedItems/${id}`));
+          if (ownedItem.exists()) {
+            const ownedVal = ownedItem.val() || {};
+            const sourceItem = await get(ref(db, `items/${id}`));
+            if (sourceItem.exists()) {
+              found = {
+                id,
+                sourceItemId: id,
+                collectionId: String(ownedVal.collectionId || ""),
+                createdAt: ownedVal.createdAt || 0,
+                updatedAt: ownedVal.updatedAt || 0,
+                ...sourceItem.val(),
+              };
+            }
           }
         }
 

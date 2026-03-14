@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
-import { ref, get, remove } from "firebase/database";
+import { ref, get, update } from "firebase/database";
 import { auth, db } from "../../firebase-config";
 import { formatRarityLabel } from "../lib/rarity";
 import {
@@ -11,6 +11,7 @@ import {
   setCachedCollections,
   upsertCachedCollection,
 } from "../lib/userDataCache";
+import { buildOwnershipRemovalUpdates, resolveSourceItemId } from "../lib/ownership";
 import Nav from "../components/Nav";
 import StorageImage from "../components/StorageImage";
 
@@ -81,16 +82,69 @@ export default function CollectionPage() {
           return;
         }
 
-        const itemSnap = await get(ref(db, `users/${ownerUid}/collectionItems`));
-        const raw = itemSnap.exists() ? itemSnap.val() : {};
-        const allItems = Object.keys(raw || {})
+        const [ownedSnap, itemIdsSnap] = await Promise.all([
+          get(ref(db, `users/${ownerUid}/ownedItems`)),
+          get(ref(db, `users/${ownerUid}/collections/${collectionId}/itemIds`)),
+        ]);
+        const ownedVal = ownedSnap.exists() ? ownedSnap.val() : {};
+        const ownedRefs = Object.keys(ownedVal || {})
           .filter((k) => !k.startsWith("_"))
-          .map((k) => ({ id: k, ...raw[k] }));
-        const nextItems = Object.keys(raw || {})
-          .filter((k) => !k.startsWith("_"))
-          .map((k) => ({ id: k, ...raw[k] }))
-          .filter((item) => item.collectionId === collectionId)
+          .map((k) => ({ itemId: k, ...ownedVal[k] }));
+        const ownedById = new Map(
+          ownedRefs.map((entry) => [String(entry.itemId || ""), entry])
+        );
+
+        const itemIdsVal = itemIdsSnap.exists() ? itemIdsSnap.val() : {};
+        const itemIds = Object.keys(itemIdsVal || {}).filter((k) => !k.startsWith("_"));
+        const sourceIds = Array.from(
+          new Set([...itemIds, ...ownedRefs.map((entry) => String(entry.itemId || ""))].filter(Boolean))
+        );
+        const sourceSnaps = await Promise.all(
+          sourceIds.map((itemId) => get(ref(db, `items/${itemId}`)))
+        );
+        const sourceMap = new Map();
+        sourceIds.forEach((itemId, index) => {
+          const snap = sourceSnaps[index];
+          if (snap?.exists()) {
+            sourceMap.set(itemId, snap.val());
+          }
+        });
+
+        const allOwnedItems = ownedRefs
+          .map((entry) => {
+            const itemId = String(entry.itemId || "");
+            const source = sourceMap.get(itemId);
+            if (!source) return null;
+            return {
+              id: itemId,
+              sourceItemId: itemId,
+              collectionId: String(entry.collectionId || ""),
+              createdAt: entry.createdAt || source.createdAt || 0,
+              updatedAt: entry.updatedAt || source.updatedAt || source.createdAt || 0,
+              ...source,
+            };
+          })
+          .filter(Boolean);
+
+        const nextItemsFromRefs = itemIds
+          .map((itemId) => {
+            const ownedEntry = ownedById.get(String(itemId));
+            const source = sourceMap.get(String(itemId));
+            if (!source) return null;
+            return {
+              id: String(itemId),
+              sourceItemId: String(itemId),
+              collectionId: String(ownedEntry?.collectionId || ""),
+              createdAt: ownedEntry?.createdAt || source.createdAt || 0,
+              updatedAt: ownedEntry?.updatedAt || source.updatedAt || source.createdAt || 0,
+              ...source,
+            };
+          })
+          .filter(Boolean)
           .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+
+        const allItems = allOwnedItems;
+        const nextItems = nextItemsFromRefs;
 
         if (!alive) return;
         setCollection(collectionValue);
@@ -182,7 +236,16 @@ export default function CollectionPage() {
 
     setRemovingId(itemId);
     try {
-      await remove(ref(db, `users/${viewerUid}/collectionItems/${itemId}`));
+      const target = items.find((entry) => String(entry.id) === String(itemId)) || {};
+      const sourceItemId = resolveSourceItemId(target, itemId);
+      const updates = {
+        ...buildOwnershipRemovalUpdates({
+          uid: viewerUid,
+          itemId: sourceItemId,
+          collectionId: target.collectionId || "",
+        }),
+      };
+      await update(ref(db), updates);
       setItems((prev) => prev.filter((item) => item.id !== itemId));
       removeCachedCollectionItem(viewerUid, itemId);
     } catch (err) {

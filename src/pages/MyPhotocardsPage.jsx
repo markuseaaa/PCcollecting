@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
-import { ref, get, remove } from "firebase/database";
+import { ref, get, update } from "firebase/database";
 import { auth, db } from "../../firebase-config";
 import { formatRarityLabel } from "../lib/rarity";
 import { cropImageFileToBlob } from "../lib/imageCrop";
@@ -16,6 +16,7 @@ import {
   setCachedCollectionItems,
   setCachedCollections,
 } from "../lib/userDataCache";
+import { buildOwnershipRemovalUpdates, resolveSourceItemId } from "../lib/ownership";
 import StorageImage from "../components/StorageImage";
 import Nav from "../components/Nav";
 
@@ -81,17 +82,40 @@ export default function MyPhotocardsPage() {
           return;
         }
 
-        const [itemSnap, collectionSnap] = await Promise.all([
-          get(ref(db, `users/${uid}/collectionItems`)),
+        const [ownedSnap, collectionSnap] = await Promise.all([
+          get(ref(db, `users/${uid}/ownedItems`)),
           get(ref(db, `users/${uid}/collections`)),
         ]);
 
         if (!alive) return;
 
-        const rawItems = itemSnap.exists() ? itemSnap.val() : {};
-        const list = Object.keys(rawItems || {})
+        const ownedVal = ownedSnap.exists() ? ownedSnap.val() : {};
+        const ownedRefs = Object.keys(ownedVal || {})
           .filter((k) => !k.startsWith("_"))
-          .map((k) => ({ id: k, ...rawItems[k] }));
+          .map((k) => ({ itemId: k, ...ownedVal[k] }));
+
+        let ownedList = [];
+        if (ownedRefs.length > 0) {
+          const itemSnaps = await Promise.all(
+            ownedRefs.map((entry) => get(ref(db, `items/${entry.itemId}`)))
+          );
+          ownedList = ownedRefs
+            .map((entry, index) => {
+              const itemData = itemSnaps[index]?.exists() ? itemSnaps[index].val() : null;
+              if (!itemData) return null;
+              return {
+                id: entry.itemId,
+                sourceItemId: entry.itemId,
+                collectionId: String(entry.collectionId || ""),
+                createdAt: entry.createdAt || itemData.createdAt || 0,
+                updatedAt: entry.updatedAt || itemData.updatedAt || itemData.createdAt || 0,
+                ...itemData,
+              };
+            })
+            .filter(Boolean);
+        }
+
+        const list = ownedList;
         setItems(list);
         setCachedCollectionItems(uid, list);
 
@@ -201,7 +225,16 @@ export default function MyPhotocardsPage() {
 
     setRemovingId(itemId);
     try {
-      await remove(ref(db, `users/${uid}/collectionItems/${itemId}`));
+      const target = items.find((entry) => String(entry.id) === String(itemId)) || {};
+      const sourceItemId = resolveSourceItemId(target, itemId);
+      const updates = {
+        ...buildOwnershipRemovalUpdates({
+          uid,
+          itemId: sourceItemId,
+          collectionId: target.collectionId || "",
+        }),
+      };
+      await update(ref(db), updates);
       setItems((prev) => prev.filter((item) => item.id !== itemId));
       removeCachedCollectionItem(uid, itemId);
     } catch (err) {

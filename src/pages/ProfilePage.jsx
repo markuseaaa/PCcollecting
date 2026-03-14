@@ -83,7 +83,7 @@ export default function ProfilePage() {
       const [userSnap, colSnap, itemSnap] = await Promise.all([
         get(ref(db, `users/${uid}`)),
         get(ref(db, `users/${uid}/collections`)),
-        get(ref(db, `users/${uid}/collectionItems`)),
+        get(ref(db, `users/${uid}/ownedItems`)),
       ]);
 
       const userVal = userSnap.exists() ? userSnap.val() : {};
@@ -96,7 +96,8 @@ export default function ProfilePage() {
       setCollectionCount(Object.keys(cols).filter((k) => !k.startsWith("_")).length);
 
       const items = itemSnap.exists() ? itemSnap.val() : {};
-      setCardCount(Object.keys(items).filter((k) => !k.startsWith("_")).length);
+      const ownedCount = Object.keys(items).filter((k) => !k.startsWith("_")).length;
+      setCardCount(ownedCount);
 
       setFriends(mapFriendList(userVal.friends || {}));
       setIncomingRequests(mapIncomingRequests(userVal.friendRequestsIncoming || {}));

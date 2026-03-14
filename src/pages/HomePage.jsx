@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { ref, onValue, get } from "firebase/database";
 import { auth, db } from "../../firebase-config";
@@ -33,6 +33,7 @@ export default function HomePage() {
   const [collections, setCollections] = useState([]);
   const [items, setItems] = useState([]);
   const [username, setUsername] = useState("");
+  const itemMetaCacheRef = useRef(new Map());
 
   useEffect(() => {
     const uid = auth.currentUser?.uid;
@@ -54,15 +55,38 @@ export default function HomePage() {
       }),
     );
 
-    const itemRef = ref(db, `users/${uid}/collectionItems`);
+    const itemRef = ref(db, `users/${uid}/ownedItems`);
     unsubs.push(
       onValue(itemRef, (snap) => {
         const val = snap.val() || {};
-        const next = Object.keys(val)
-          .filter((k) => !k.startsWith("_"))
-          .map((k) => ({ id: k, ...val[k] }))
-          .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
-        setItems(next);
+        const ids = Object.keys(val).filter((k) => !k.startsWith("_"));
+        const ownedEntries = ids.map((id) => ({ id, ...val[id] }));
+
+        (async () => {
+          const missingIds = ids.filter((id) => !itemMetaCacheRef.current.has(id));
+          if (missingIds.length > 0) {
+            const snaps = await Promise.all(
+              missingIds.map((id) => get(ref(db, `items/${id}`)))
+            );
+            missingIds.forEach((id, index) => {
+              const itemVal = snaps[index]?.exists() ? snaps[index].val() || {} : {};
+              itemMetaCacheRef.current.set(id, {
+                member: String(itemVal.member || ""),
+                group: String(itemVal.group || ""),
+              });
+            });
+          }
+
+          const next = ownedEntries.map((entry) => {
+            const meta = itemMetaCacheRef.current.get(entry.id) || {};
+            return {
+              ...entry,
+              member: meta.member || "",
+              group: meta.group || "",
+            };
+          });
+          setItems(next);
+        })();
       }),
     );
 
