@@ -368,6 +368,24 @@ export default function SubmitPage() {
       .slice(0, 8);
   }, [pobStoreOptions, normalizedPobStore]);
 
+  const normalizedSourceName = normalize(sourceName);
+  const sourceOptions = useMemo(() => {
+    if (!normalizedGroup) return [];
+    const fromItems = existingItems
+      .filter((item) => normalize(item.group) === normalizedGroup)
+      .filter((item) => normalize(item.rarity) === normalize(rarity))
+      .map((item) => String(item.sourceName || "").trim())
+      .filter(Boolean);
+    return dedupeNamesCaseInsensitive(fromItems);
+  }, [existingItems, normalizedGroup, rarity]);
+
+  const sourceSuggestions = useMemo(() => {
+    if (!normalizedSourceName) return sourceOptions.slice(0, 12);
+    return sourceOptions
+      .filter((name) => normalize(name).includes(normalizedSourceName))
+      .slice(0, 12);
+  }, [sourceOptions, normalizedSourceName]);
+
   const computedTitle = useMemo(() => {
     const person =
       requiresUnitMembers && unitMembers.length > 0
@@ -1210,6 +1228,20 @@ export default function SubmitPage() {
                             : "e.g. Official merch drop"
               }
             />
+            {sourceSuggestions.length > 0 ? (
+              <div className="option-list">
+                {sourceSuggestions.map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    className="option-chip"
+                    onClick={() => setSourceName(name)}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </label>
         )}
 
@@ -1231,6 +1263,20 @@ export default function SubmitPage() {
                 onChange={(e) => setSourceName(e.target.value)}
                 placeholder="e.g. Offline event booth"
               />
+              {sourceSuggestions.length > 0 ? (
+                <div className="option-list">
+                  {sourceSuggestions.map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      className="option-chip"
+                      onClick={() => setSourceName(name)}
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </label>
           </>
         )}
