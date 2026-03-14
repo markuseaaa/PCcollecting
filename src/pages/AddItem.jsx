@@ -1,10 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { ref as dbRef, get, push, update, serverTimestamp } from "firebase/database";
+import {
+  ref as dbRef,
+  get,
+  push,
+  update,
+  serverTimestamp,
+} from "firebase/database";
 import { auth, db } from "../../firebase-config";
 import { formatRarityLabel } from "../lib/rarity";
 import Nav from "../components/Nav";
 import StorageImage from "../components/StorageImage";
+
+function normalizeSearchText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "");
+}
 
 export default function AddItem() {
   const [query, setQuery] = useState("");
@@ -76,14 +90,18 @@ export default function AddItem() {
   }, []);
 
   const results = useMemo(() => {
-    const term = query.trim().toLowerCase();
-    if (term.length < 3) return [];
+    const rawTerm = query.trim();
+    if (rawTerm.length < 3) return [];
+    const term = normalizeSearchText(rawTerm);
+    if (term.length < 2) return [];
     const ownedSet = new Set(ownedItemIds.map((id) => String(id)));
     const availableItems = allItems.filter((item) => !ownedSet.has(String(item.id)));
     return availableItems.filter((item) =>
-      `${item.title || ""} ${item.group || ""} ${item.member || ""} ${item.version || item.era || ""}`
-        .toLowerCase()
-        .includes(term)
+      normalizeSearchText(
+        `${item.title || ""} ${item.group || ""} ${item.member || ""} ${item.album || ""} ${
+          item.sourceName || ""
+        } ${item.version || item.era || ""} ${item.rarity || ""}`
+      ).includes(term)
     );
   }, [allItems, query, ownedItemIds]);
 

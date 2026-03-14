@@ -1,6 +1,15 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { ref as dbRef, get, push, update, serverTimestamp } from "firebase/database";
+import {
+  ref as dbRef,
+  get,
+  push,
+  query,
+  orderByChild,
+  equalTo,
+  update,
+  serverTimestamp,
+} from "firebase/database";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { auth, db, storage } from "../../firebase-config";
 import {
@@ -126,6 +135,7 @@ export default function SubmitPage() {
   const [keepAdding, setKeepAdding] = useState(true);
   const [duplicateCandidates, setDuplicateCandidates] = useState([]);
   const [duplicateLoading, setDuplicateLoading] = useState(false);
+  const groupItemsCacheRef = useRef(new Map());
 
   const isAlbumRequired = rarity === "album" || rarity === "pob" || rarity === "lucky-draw";
   const supportsAlbumLink = isAlbumRequired || rarity === "pop-up";
@@ -138,9 +148,8 @@ export default function SubmitPage() {
       const uid = auth.currentUser?.uid;
       if (!uid) return;
 
-      const [collectionSnap, globalItemsSnap, catalogSnap, pobStoreSnap] = await Promise.all([
+      const [collectionSnap, catalogSnap, pobStoreSnap] = await Promise.all([
         get(dbRef(db, `users/${uid}/collections`)),
-        get(dbRef(db, "items")),
         get(dbRef(db, "meta/groupCatalog")),
         get(dbRef(db, "meta/pobStoreCatalog")),
       ]);
@@ -152,12 +161,6 @@ export default function SubmitPage() {
         .filter((k) => !k.startsWith("_"))
         .map((k) => ({ id: k, ...colVal[k] }));
       setCollections(colList);
-
-      const itemVal = globalItemsSnap.exists() ? globalItemsSnap.val() : {};
-      const itemList = Object.keys(itemVal || {})
-        .filter((k) => !k.startsWith("_"))
-        .map((k) => ({ id: k, ...itemVal[k] }));
-      setExistingItems(itemList);
 
       const catalogVal = catalogSnap.exists() ? catalogSnap.val() : {};
       setGroupCatalog(catalogVal || {});
@@ -198,6 +201,56 @@ export default function SubmitPage() {
     ? groupCatalog[matchedCatalogGroupKey] || {}
     : null;
   const membersLocked = Boolean(selectedCatalogGroup?.membersLocked);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadItemsForGroup() {
+      const groupName = group.trim();
+      if (!groupName) {
+        setExistingItems([]);
+        return;
+      }
+
+      const canonicalGroupName = String(selectedCatalogGroup?.name || "").trim();
+      const candidateNames = Array.from(
+        new Set([groupName, canonicalGroupName].filter(Boolean))
+      );
+      const cacheKey = candidateNames.map((name) => normalize(name)).sort().join("|");
+      if (groupItemsCacheRef.current.has(cacheKey)) {
+        setExistingItems(groupItemsCacheRef.current.get(cacheKey) || []);
+        return;
+      }
+
+      const merged = new Map();
+      for (const name of candidateNames) {
+        const snap = await get(
+          query(dbRef(db, "items"), orderByChild("group"), equalTo(name))
+        );
+        if (!snap.exists()) continue;
+        const val = snap.val() || {};
+        for (const key of Object.keys(val || {})) {
+          if (key.startsWith("_")) continue;
+          merged.set(key, { id: key, ...val[key] });
+        }
+      }
+      const list = Array.from(merged.values());
+      groupItemsCacheRef.current.set(cacheKey, list);
+      if (alive) {
+        setExistingItems(list);
+      }
+    }
+
+    loadItemsForGroup().catch((err) => {
+      if (!alive) return;
+      setError(err?.message || "Could not load item suggestions.");
+      setExistingItems([]);
+    });
+
+    return () => {
+      alive = false;
+    };
+  }, [group, selectedCatalogGroup?.name]);
 
   const albumOptions = useMemo(() => {
     if (!normalizedGroup) return [];
@@ -521,9 +574,7 @@ export default function SubmitPage() {
   }
 
   function resetForNextAdd() {
-    setSelectedCollectionId("");
     setRarity("album");
-    setGroup("");
     setMember("");
     setUnitMembers([]);
     setAlbumChoice("");
@@ -585,6 +636,7 @@ export default function SubmitPage() {
     updates[`users/${uid}/collectionItems/${userItemId}`] = userPayload;
     updates[`users/${uid}/collectionItems/_placeholder`] = true;
     await update(dbRef(db), updates);
+    groupItemsCacheRef.current.clear();
     appendCachedCollectionItem(uid, { ...userPayload, createdAt: Date.now(), updatedAt: Date.now() });
     if (keepAdding) {
       setSuccess("Photocard added. You can add another.");
@@ -698,6 +750,7 @@ export default function SubmitPage() {
       }
 
       await update(dbRef(db), updates);
+      groupItemsCacheRef.current.clear();
       setExistingItems((prev) => {
         const nextItem = { ...base, id: itemId };
         if (prev.some((item) => String(item.id) === String(itemId))) return prev;
@@ -1035,8 +1088,22 @@ export default function SubmitPage() {
                 <button
                   key={name}
                   type="button"
-                  className="option-chip"
-                  onClick={() => setGroup(name)}
+                  className={`option-chip ${normalize(name) === normalizedGroup ? "active" : ""}`}
+                  onClick={() => {
+                    const isActive = normalize(name) === normalizedGroup;
+                    if (isActive) {
+                      setGroup("");
+                      setMember("");
+                      setAlbumChoice("");
+                      setNewAlbumName("");
+                      setUnitMembers([]);
+                      return;
+                    }
+                    setGroup(name);
+                    setAlbumChoice("");
+                    setNewAlbumName("");
+                    setUnitMembers([]);
+                  }}
                 >
                   {name}
                 </button>
@@ -1070,8 +1137,14 @@ export default function SubmitPage() {
                 <button
                   key={name}
                   type="button"
-                  className="option-chip"
+                  className={`option-chip ${normalize(name) === normalizedMember ? "active" : ""}`}
                   onClick={() => {
+                    const isActive = normalize(name) === normalizedMember;
+                    if (isActive) {
+                      setMember("");
+                      setUnitMembers([]);
+                      return;
+                    }
                     setMember(name);
                     if (normalize(name) !== "unit") {
                       setUnitMembers([]);

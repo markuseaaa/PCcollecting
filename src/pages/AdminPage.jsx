@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ref, get, update } from "firebase/database";
+import { ref, get, query as dbQuery, orderByChild, equalTo, update } from "firebase/database";
 import { serverTimestamp } from "firebase/database";
 import { deleteObject, ref as storageRef } from "firebase/storage";
 import { auth, db, storage } from "../../firebase-config";
@@ -298,7 +298,6 @@ export default function AdminPage() {
         pobStore: form.pobStore.trim(),
         otherType: form.otherType.trim(),
       };
-
       const updates = {};
       for (const field of EDIT_FIELDS) {
         updates[`items/${itemId}/${field}`] = patch[field];
@@ -584,11 +583,26 @@ export default function AdminPage() {
     try {
       let itemsForPropagation = items;
       if (!itemsLoaded) {
-        const itemSnap = await get(ref(db, "items"));
-        const val = itemSnap.exists() ? itemSnap.val() : {};
-        itemsForPropagation = Object.keys(val || {})
-          .filter((k) => !k.startsWith("_"))
-          .map((k) => ({ id: k, ...val[k] }));
+        const candidateGroupNames = Array.from(
+          new Set(
+            [selectedGroup?.name, selectedGroupKey]
+              .map((name) => String(name || "").trim())
+              .filter(Boolean)
+          )
+        );
+        const merged = new Map();
+        for (const groupName of candidateGroupNames) {
+          const snap = await get(
+            dbQuery(ref(db, "items"), orderByChild("group"), equalTo(groupName))
+          );
+          if (!snap.exists()) continue;
+          const val = snap.val() || {};
+          for (const key of Object.keys(val || {})) {
+            if (key.startsWith("_")) continue;
+            merged.set(key, { id: key, ...val[key] });
+          }
+        }
+        itemsForPropagation = Array.from(merged.values());
       }
       const updates = {
         [`meta/groupCatalog/${selectedGroupKey}/updatedAt`]: serverTimestamp(),

@@ -1,6 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
-import { ref as dbRef, get, push, update, serverTimestamp } from "firebase/database";
+import {
+  ref as dbRef,
+  get,
+  push,
+  query as dbQuery,
+  orderByChild,
+  equalTo,
+  endAt,
+  limitToLast,
+  update,
+  serverTimestamp,
+} from "firebase/database";
 import { auth, db } from "../../firebase-config";
 import {
   computeAverageHashFromBlob,
@@ -17,11 +28,19 @@ function similarityFromDistance(distance, maxBits = 256) {
 }
 
 const MIN_MATCH_PERCENT = 60;
+const SCAN_BATCH_SIZE = 250;
+const MAX_SCAN_BATCHES = 20;
+
+function normalize(value) {
+  return String(value || "").trim().toLowerCase();
+}
 
 export default function ScanPage() {
   const [collections, setCollections] = useState([]);
   const [ownedItemIds, setOwnedItemIds] = useState([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState("");
+  const [scanGroup, setScanGroup] = useState("");
+  const [groupOptions, setGroupOptions] = useState([]);
   const [scanFile, setScanFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const [cropEnabled, setCropEnabled] = useState(true);
@@ -45,10 +64,10 @@ export default function ScanPage() {
       const uid = auth.currentUser?.uid;
       if (!uid) return;
 
-      const [colSnap, itemSnap, ownedSnap] = await Promise.all([
+      const [colSnap, ownedSnap, catalogSnap] = await Promise.all([
         get(dbRef(db, `users/${uid}/collections`)),
-        get(dbRef(db, "items")),
         get(dbRef(db, `users/${uid}/collectionItems`)),
+        get(dbRef(db, "meta/groupCatalog")),
       ]);
 
       if (!alive) return;
@@ -72,10 +91,13 @@ export default function ScanPage() {
       }
       setOwnedItemIds(Array.from(owned));
 
-      // Warm-up read to ensure initial scan has data ready.
-      if (itemSnap.exists()) {
-        // no-op
-      }
+      const catalogVal = catalogSnap.exists() ? catalogSnap.val() : {};
+      const groups = Object.values(catalogVal || {})
+        .map((entry) => String(entry?.name || "").trim())
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b));
+      setGroupOptions(groups);
+
     }
 
     load().catch((err) => setError(err?.message || "Could not load scan data."));
@@ -84,13 +106,29 @@ export default function ScanPage() {
     };
   }, []);
 
-  async function refreshGlobalItems() {
-    const itemSnap = await get(dbRef(db, "items"));
+  async function fetchRecentBatch(beforeCreatedAt = null) {
+    const constraints = [orderByChild("createdAt")];
+    if (Number.isFinite(beforeCreatedAt)) {
+      constraints.push(endAt(beforeCreatedAt));
+    }
+    constraints.push(limitToLast(SCAN_BATCH_SIZE));
+    const itemSnap = await get(dbQuery(dbRef(db, "items"), ...constraints));
     const itemVal = itemSnap.exists() ? itemSnap.val() : {};
-    const itemList = Object.keys(itemVal || {})
+    return Object.keys(itemVal || {})
       .filter((k) => !k.startsWith("_"))
-      .map((k) => ({ id: k, ...itemVal[k] }));
-    return itemList;
+      .map((k) => ({ id: k, ...itemVal[k] }))
+      .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+  }
+
+  async function fetchItemsForGroup(groupName) {
+    const name = String(groupName || "").trim();
+    if (!name) return [];
+    const snap = await get(dbQuery(dbRef(db, "items"), orderByChild("group"), equalTo(name)));
+    const val = snap.exists() ? snap.val() : {};
+    return Object.keys(val || {})
+      .filter((k) => !k.startsWith("_"))
+      .map((k) => ({ id: k, ...val[k] }))
+      .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
   }
 
   useEffect(() => {
@@ -200,36 +238,80 @@ export default function ScanPage() {
         });
       }
 
-      const [hash, centeredHash, latestItems] = await Promise.all([
+      const [hash, centeredHash] = await Promise.all([
         computeAverageHashFromBlob(scanBlob, 16),
         computeCenteredAverageHashFromBlob(scanBlob, 16, 2 / 3),
-        refreshGlobalItems(),
       ]);
 
       const ownedSet = new Set(ownedItemIds.map((id) => String(id)));
-      const latestIndexed = latestItems.filter(
-        (item) =>
-          typeof item.imgHash === "string" &&
-          item.imgHash.length > 0 &&
-          !ownedSet.has(String(item.id))
-      );
+      const ranked = [];
+      const seenIds = new Set();
+      const groupFilter = String(scanGroup || "").trim();
+      const normalizedGroupFilter = normalize(groupFilter);
+      let cursor = null;
+      let batches = 0;
+      let foundGoodMatch = false;
 
-      const ranked = latestIndexed
-        .map((item) => {
+      const processBatch = (batch) => {
+        if (!batch.length) return false;
+
+        for (const item of batch) {
+          const id = String(item.id || "").trim();
+          if (!id || seenIds.has(id) || ownedSet.has(id)) continue;
+          seenIds.add(id);
+          if (normalizedGroupFilter && normalize(item.group) !== normalizedGroupFilter) continue;
+          if (typeof item.imgHash !== "string" || !item.imgHash.length) continue;
+
           const distA = hammingDistance(hash, item.imgHash);
           const distB = hammingDistance(centeredHash, item.imgHash);
           const dist = Math.min(distA, distB);
-          return {
+          const similarity = similarityFromDistance(dist);
+          if (similarity < MIN_MATCH_PERCENT) continue;
+
+          ranked.push({
             ...item,
             dist,
-            similarity: similarityFromDistance(dist),
-          };
-        })
-        .filter((item) => item.similarity >= MIN_MATCH_PERCENT)
-        .sort((a, b) => b.similarity - a.similarity)
-        .slice(0, 3);
+            similarity,
+          });
+          foundGoodMatch = true;
+        }
 
-      setMatches(ranked);
+        ranked.sort((a, b) => b.similarity - a.similarity);
+        if (ranked.length > 25) {
+          ranked.splice(25);
+        }
+        return true;
+      };
+
+      if (groupFilter) {
+        const allGroupItems = await fetchItemsForGroup(groupFilter);
+        for (let start = 0; start < allGroupItems.length && batches < MAX_SCAN_BATCHES; start += SCAN_BATCH_SIZE) {
+          const batch = allGroupItems.slice(start, start + SCAN_BATCH_SIZE);
+          const hadBatch = processBatch(batch);
+          if (!hadBatch) break;
+          if (foundGoodMatch && ranked.length >= 3) break;
+          batches += 1;
+        }
+      } else {
+        while (batches < MAX_SCAN_BATCHES) {
+          const batch = await fetchRecentBatch(cursor);
+          if (!batch.length) break;
+          processBatch(batch);
+          if (foundGoodMatch && ranked.length >= 3) break;
+
+          const oldestCreatedAt = Number(
+            batch.reduce((min, item) => {
+              const ts = Number(item.createdAt || 0);
+              return Number.isFinite(ts) ? Math.min(min, ts) : min;
+            }, Number.POSITIVE_INFINITY)
+          );
+          if (!Number.isFinite(oldestCreatedAt) || oldestCreatedAt <= 0) break;
+          cursor = oldestCreatedAt - 1;
+          batches += 1;
+        }
+      }
+
+      setMatches(ranked.slice(0, 3));
     } catch (err) {
       setError(err?.message || "Could not scan this image.");
       setMatches([]);
@@ -328,6 +410,18 @@ export default function ScanPage() {
             {collections.map((collection) => (
               <option key={collection.id} value={collection.id}>
                 {collection.title || "Untitled"}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label>
+          Group filter (optional)
+          <select value={scanGroup} onChange={(e) => setScanGroup(e.target.value)}>
+            <option value="">All groups (slower)</option>
+            {groupOptions.map((name) => (
+              <option key={name} value={name}>
+                {name}
               </option>
             ))}
           </select>
