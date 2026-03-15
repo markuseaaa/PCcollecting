@@ -4,6 +4,7 @@ import { ref, get, update } from "firebase/database";
 import { auth, db } from "../../firebase-config";
 import { formatRarityLabel } from "../lib/rarity";
 import {
+  fetchItemSummariesByIds,
   getCachedCollectionItems,
   getCachedCollections,
   removeCachedCollectionItem,
@@ -99,16 +100,7 @@ export default function CollectionPage() {
         const sourceIds = Array.from(
           new Set([...itemIds, ...ownedRefs.map((entry) => String(entry.itemId || ""))].filter(Boolean))
         );
-        const sourceSnaps = await Promise.all(
-          sourceIds.map((itemId) => get(ref(db, `items/${itemId}`)))
-        );
-        const sourceMap = new Map();
-        sourceIds.forEach((itemId, index) => {
-          const snap = sourceSnaps[index];
-          if (snap?.exists()) {
-            sourceMap.set(itemId, snap.val());
-          }
-        });
+        const sourceMap = await fetchItemSummariesByIds(sourceIds);
 
         const allOwnedItems = ownedRefs
           .map((entry) => {

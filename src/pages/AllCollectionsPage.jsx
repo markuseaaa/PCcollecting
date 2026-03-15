@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { ref, onValue } from "firebase/database";
-import { auth, db } from "../../firebase-config";
+import { auth } from "../../firebase-config";
+import { fetchUserCollections } from "../lib/userDataCache";
 import Nav from "../components/Nav";
 import StorageImage from "../components/StorageImage";
 
@@ -10,24 +10,24 @@ export default function AllCollectionsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let alive = true;
     const uid = auth.currentUser?.uid;
     if (!uid) {
       setLoading(false);
       return;
     }
 
-    const unsub = onValue(ref(db, `users/${uid}/collections`), (snap) => {
-      const val = snap.val() || {};
-      const next = Object.keys(val)
-        .filter((k) => !k.startsWith("_"))
-        .map((k) => ({ id: k, ...val[k] }))
-        .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
-      setCollections(next);
-      setLoading(false);
-    });
+    fetchUserCollections(uid)
+      .then((next) => {
+        if (!alive) return;
+        setCollections(next);
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
 
     return () => {
-      if (typeof unsub === "function") unsub();
+      alive = false;
     };
   }, []);
 

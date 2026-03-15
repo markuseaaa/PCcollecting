@@ -5,6 +5,7 @@ import { deleteObject, ref as storageRef } from "firebase/storage";
 import { auth, db, storage } from "../../firebase-config";
 import { hasAdminClaim } from "../lib/adminAuth";
 import { formatRarityLabel } from "../lib/rarity";
+import { buildItemSummaryPayload } from "../lib/itemSummary";
 import StorageImage from "../components/StorageImage";
 import Nav from "../components/Nav";
 
@@ -309,6 +310,11 @@ export default function AdminPage() {
         updates[`items/${itemId}/${field}`] = patch[field];
       }
       updates[`items/${itemId}/updatedAt`] = serverTimestamp();
+      const currentItem = items.find((entry) => String(entry.id) === String(itemId)) || { id: itemId };
+      updates[`itemSummaries/${itemId}`] = buildItemSummaryPayload(
+        { ...currentItem, ...patch, updatedAt: Date.now() },
+        itemId
+      );
 
       const propagated = await buildPropagationUpdates(itemId, patch, "edit");
       Object.assign(updates, propagated);
@@ -345,6 +351,8 @@ export default function AdminPage() {
 
       const updates = {
         [`items/${itemId}`]: null,
+        [`itemSummaries/${itemId}`]: null,
+        [`itemHashes/${itemId}`]: null,
       };
 
       const propagated = await buildPropagationUpdates(itemId, {}, "delete");
@@ -626,7 +634,9 @@ export default function AdminPage() {
         if (!groupMatch || !normalizedOldAlbum || albumNorm !== normalizedOldAlbum) continue;
         matchedItemIds.push(item.id);
         updates[`items/${item.id}/album`] = newName;
+        updates[`itemSummaries/${item.id}/album`] = newName;
         updates[`items/${item.id}/updatedAt`] = serverTimestamp();
+        updates[`itemSummaries/${item.id}/updatedAt`] = serverTimestamp();
       }
 
       if (matchedItemIds.length > 0) {

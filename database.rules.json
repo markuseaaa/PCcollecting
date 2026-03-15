@@ -4,6 +4,12 @@
     ".write": "auth != null",
     "items": {
       ".indexOn": ["createdAt", "group"]
+    },
+    "itemSummaries": {
+      ".indexOn": ["createdAt", "group"]
+    },
+    "itemHashes": {
+      ".indexOn": ["createdAt", "group"]
     }
   }
 }

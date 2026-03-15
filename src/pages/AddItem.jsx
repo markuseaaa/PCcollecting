@@ -3,12 +3,22 @@ import { Link } from "react-router";
 import {
   ref as dbRef,
   get,
+  query as dbQuery,
+  orderByChild,
+  endAt,
+  limitToLast,
   update,
   serverTimestamp,
 } from "firebase/database";
 import { auth, db } from "../../firebase-config";
 import { formatRarityLabel } from "../lib/rarity";
 import { buildOwnershipAssignmentUpdates } from "../lib/ownership";
+import {
+  appendCachedCollectionItem,
+  fetchUserCollections,
+  fetchUserOwnedRefs,
+  setCachedItemSummary,
+} from "../lib/userDataCache";
 import Nav from "../components/Nav";
 import StorageImage from "../components/StorageImage";
 
@@ -22,7 +32,7 @@ function normalizeSearchText(value) {
 
 export default function AddItem() {
   const [query, setQuery] = useState("");
-  const [allItems, setAllItems] = useState([]);
+  const [results, setResults] = useState([]);
   const [ownedItemIds, setOwnedItemIds] = useState([]);
   const [collections, setCollections] = useState([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState("");
@@ -30,7 +40,12 @@ export default function AddItem() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(true);
+  const [searching, setSearching] = useState(false);
   const [visibleCount, setVisibleCount] = useState(24);
+
+  const SEARCH_BATCH_SIZE = 250;
+  const SEARCH_MAX_BATCHES = 120;
+  const SEARCH_MAX_RESULTS = 5000;
 
   useEffect(() => {
     let alive = true;
@@ -43,30 +58,17 @@ export default function AddItem() {
       }
 
       try {
-        const [itemsSnap, collectionsSnap, ownedRefsSnap] = await Promise.all([
-          get(dbRef(db, "items")),
-          get(dbRef(db, `users/${uid}/collections`)),
-          get(dbRef(db, `users/${uid}/ownedItems`)),
+        const [colList, ownedRefsVal] = await Promise.all([
+          fetchUserCollections(uid),
+          fetchUserOwnedRefs(uid),
         ]);
 
         if (!alive) return;
 
-        const itemVal = itemsSnap.exists() ? itemsSnap.val() : {};
-        const itemList = Object.keys(itemVal || {})
-          .filter((k) => !k.startsWith("_"))
-          .map((k) => ({ id: k, ...itemVal[k] }))
-          .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
-        setAllItems(itemList);
-
-        const colVal = collectionsSnap.exists() ? collectionsSnap.val() : {};
-        const colList = Object.keys(colVal || {})
-          .filter((k) => !k.startsWith("_"))
-          .map((k) => ({ id: k, ...colVal[k] }));
         setCollections(colList);
         setSelectedCollectionId("");
 
         const owned = new Set();
-        const ownedRefsVal = ownedRefsSnap.exists() ? ownedRefsSnap.val() : {};
         for (const key of Object.keys(ownedRefsVal || {})) {
           if (key.startsWith("_")) continue;
           owned.add(String(key));
@@ -85,21 +87,95 @@ export default function AddItem() {
     };
   }, []);
 
-  const results = useMemo(() => {
+  useEffect(() => {
+    let alive = true;
     const rawTerm = query.trim();
-    if (rawTerm.length < 3) return [];
+    if (rawTerm.length < 3) {
+      setResults([]);
+      setSearching(false);
+      return () => {
+        alive = false;
+      };
+    }
+
     const term = normalizeSearchText(rawTerm);
-    if (term.length < 2) return [];
+    if (term.length < 2) {
+      setResults([]);
+      setSearching(false);
+      return () => {
+        alive = false;
+      };
+    }
+
     const ownedSet = new Set(ownedItemIds.map((id) => String(id)));
-    const availableItems = allItems.filter((item) => !ownedSet.has(String(item.id)));
-    return availableItems.filter((item) =>
-      normalizeSearchText(
-        `${item.title || ""} ${item.group || ""} ${item.member || ""} ${item.album || ""} ${
-          item.sourceName || ""
-        } ${item.version || item.era || ""} ${item.rarity || ""}`
-      ).includes(term)
-    );
-  }, [allItems, query, ownedItemIds]);
+
+    async function fetchBatch(beforeCreatedAt = null) {
+      const constraints = [orderByChild("createdAt")];
+      if (Number.isFinite(beforeCreatedAt)) constraints.push(endAt(beforeCreatedAt));
+      constraints.push(limitToLast(SEARCH_BATCH_SIZE));
+      const snap = await get(dbQuery(dbRef(db, "itemSummaries"), ...constraints));
+      const val = snap.exists() ? snap.val() : {};
+      return Object.keys(val || {})
+        .filter((k) => !k.startsWith("_"))
+        .map((k) => ({ id: k, ...val[k] }))
+        .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+    }
+
+    setSearching(true);
+    setError("");
+
+    (async () => {
+      const found = [];
+      const seen = new Set();
+      let cursor = null;
+      let batches = 0;
+
+      while (alive && batches < SEARCH_MAX_BATCHES && found.length < SEARCH_MAX_RESULTS) {
+        const batch = await fetchBatch(cursor);
+        if (!batch.length) break;
+
+        for (const item of batch) {
+          const id = String(item.id || "").trim();
+          if (!id || seen.has(id) || ownedSet.has(id)) continue;
+          seen.add(id);
+          const haystack = normalizeSearchText(
+            `${item.title || ""} ${item.group || ""} ${item.member || ""} ${item.album || ""} ${
+              item.sourceName || ""
+            } ${item.version || item.era || ""} ${item.rarity || ""}`
+          );
+          if (!haystack.includes(term)) continue;
+          found.push(item);
+          setCachedItemSummary(id, item);
+          if (found.length >= SEARCH_MAX_RESULTS) break;
+        }
+
+        const oldestCreatedAt = Number(
+          batch.reduce((min, item) => {
+            const ts = Number(item.createdAt || 0);
+            return Number.isFinite(ts) ? Math.min(min, ts) : min;
+          }, Number.POSITIVE_INFINITY)
+        );
+        if (!Number.isFinite(oldestCreatedAt) || oldestCreatedAt <= 0) break;
+        cursor = oldestCreatedAt - 1;
+        batches += 1;
+      }
+
+      if (!alive) return;
+      setResults(found);
+    })()
+      .catch((err) => {
+        if (!alive) return;
+        setError(err?.message || "Could not search photocards.");
+        setResults([]);
+      })
+      .finally(() => {
+        if (alive) setSearching(false);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [query, ownedItemIds]);
 
   const visibleResults = useMemo(
     () => results.slice(0, visibleCount),
@@ -145,6 +221,15 @@ export default function AddItem() {
           : "Photocard added to My Photocards."
       );
       setOwnedItemIds((prev) => (prev.includes(item.id) ? prev : [...prev, item.id]));
+      appendCachedCollectionItem(uid, {
+        ...item,
+        id: item.id,
+        sourceItemId: item.id,
+        collectionId: targetCollectionId,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      setResults((prev) => prev.filter((entry) => String(entry.id) !== String(item.id)));
     } catch (err) {
       setError(err?.message || "Could not add photocard.");
     } finally {
@@ -196,13 +281,16 @@ export default function AddItem() {
         </label>
       </section>
 
-      {loading && <p className="muted">Loading library...</p>}
+      {loading && <p className="muted">Loading collections...</p>}
+      {!loading && searching && query.trim().length >= 3 ? (
+        <p className="muted">Loading search results...</p>
+      ) : null}
       {error && <p className="error-text">{error}</p>}
       {success && <p className="success-text">{success}</p>}
       {!loading && query.trim().length < 3 ? (
         <p className="muted search-hint">Start typing (minimum 3 letters) to search photocards.</p>
       ) : null}
-      {!loading && query.trim().length >= 3 && results.length === 0 ? (
+      {!loading && !searching && query.trim().length >= 3 && results.length === 0 ? (
         <p className="muted search-hint">No matches found.</p>
       ) : null}
 

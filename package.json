@@ -11,6 +11,8 @@
     "preview": "vite preview",
     "migrate:thumb-paths": "node scripts/normalize-thumb-paths.mjs",
     "migrate:owned-refs": "node scripts/migrate-owned-item-refs.mjs",
+    "migrate:item-summaries": "node scripts/backfill-item-summaries.mjs",
+    "migrate:item-hashes": "node scripts/backfill-item-hashes.mjs",
     "cleanup:legacy-collection-items": "node scripts/cleanup-legacy-collection-items.mjs",
     "trim:owned-items": "node scripts/trim-owned-items-to-references.mjs"
   },

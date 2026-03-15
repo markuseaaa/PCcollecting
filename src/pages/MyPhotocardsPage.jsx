@@ -10,6 +10,9 @@ import {
   hammingDistance,
 } from "../lib/imageHash";
 import {
+  fetchItemSummariesByIds,
+  fetchUserCollections,
+  fetchUserOwnedRefs,
   getCachedCollectionItems,
   getCachedCollections,
   removeCachedCollectionItem,
@@ -53,6 +56,7 @@ export default function MyPhotocardsPage() {
   const checkDragRef = useRef(null);
   const checkPointersRef = useRef(new Map());
   const checkPinchRef = useRef(null);
+  const itemHashCacheRef = useRef(new Map());
   const [visibleCount, setVisibleCount] = useState(24);
 
   useEffect(() => {
@@ -82,26 +86,24 @@ export default function MyPhotocardsPage() {
           return;
         }
 
-        const [ownedSnap, collectionSnap] = await Promise.all([
-          get(ref(db, `users/${uid}/ownedItems`)),
-          get(ref(db, `users/${uid}/collections`)),
+        const [ownedVal, collectionList] = await Promise.all([
+          fetchUserOwnedRefs(uid),
+          fetchUserCollections(uid),
         ]);
 
         if (!alive) return;
 
-        const ownedVal = ownedSnap.exists() ? ownedSnap.val() : {};
         const ownedRefs = Object.keys(ownedVal || {})
           .filter((k) => !k.startsWith("_"))
           .map((k) => ({ itemId: k, ...ownedVal[k] }));
 
         let ownedList = [];
         if (ownedRefs.length > 0) {
-          const itemSnaps = await Promise.all(
-            ownedRefs.map((entry) => get(ref(db, `items/${entry.itemId}`)))
-          );
+          const ownedIds = ownedRefs.map((entry) => String(entry.itemId || ""));
+          const byId = await fetchItemSummariesByIds(ownedIds);
           ownedList = ownedRefs
-            .map((entry, index) => {
-              const itemData = itemSnaps[index]?.exists() ? itemSnaps[index].val() : null;
+            .map((entry) => {
+              const itemData = byId.get(String(entry.itemId || ""));
               if (!itemData) return null;
               return {
                 id: entry.itemId,
@@ -119,13 +121,11 @@ export default function MyPhotocardsPage() {
         setItems(list);
         setCachedCollectionItems(uid, list);
 
-        const rawCollections = collectionSnap.exists() ? collectionSnap.val() : {};
         const map = {};
-        const collectionList = [];
-        for (const key of Object.keys(rawCollections || {})) {
-          if (key.startsWith("_")) continue;
-          map[key] = rawCollections[key]?.title || "Untitled";
-          collectionList.push({ id: key, ...rawCollections[key] });
+        for (const entry of collectionList) {
+          const key = String(entry?.id || "");
+          if (!key) continue;
+          map[key] = entry?.title || "Untitled";
         }
         setCollectionMap(map);
         setCachedCollections(uid, collectionList);
@@ -336,9 +336,25 @@ export default function MyPhotocardsPage() {
     setCheckMessage("");
     if (!checkFile) return setCheckError("Upload or take a photo first.");
 
-    const candidates = items.filter(
-      (item) => typeof item.imgHash === "string" && item.imgHash.length > 0
-    );
+    const itemIds = items.map((item) => String(item.id || "")).filter(Boolean);
+    const missingIds = itemIds.filter((id) => !itemHashCacheRef.current.has(id));
+    if (missingIds.length > 0) {
+      const hashSnaps = await Promise.all(
+        missingIds.map((itemId) => get(ref(db, `itemHashes/${itemId}`)))
+      );
+      missingIds.forEach((itemId, index) => {
+        const snap = hashSnaps[index];
+        const hash = snap?.exists() ? String(snap.val()?.imgHash || "") : "";
+        itemHashCacheRef.current.set(itemId, hash);
+      });
+    }
+
+    const candidates = items
+      .map((item) => ({
+        ...item,
+        imgHash: itemHashCacheRef.current.get(String(item.id || "")) || "",
+      }))
+      .filter((item) => typeof item.imgHash === "string" && item.imgHash.length > 0);
     if (candidates.length === 0) {
       return setCheckError("No hash data found on your cards yet.");
     }

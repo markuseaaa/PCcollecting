@@ -3,6 +3,11 @@ import { Link, useParams } from "react-router";
 import { ref, get, update, serverTimestamp } from "firebase/database";
 import { auth, db } from "../../firebase-config";
 import { buildOwnershipAssignmentUpdates, resolveSourceItemId } from "../lib/ownership";
+import {
+  appendCachedCollectionItem,
+  fetchItemSummariesByIds,
+  fetchUserOwnedRefs,
+} from "../lib/userDataCache";
 import StorageImage from "../components/StorageImage";
 import Nav from "../components/Nav";
 
@@ -27,9 +32,9 @@ export default function AddFromMyPhotocardsPage() {
       }
 
       try {
-        const [colSnap, ownedSnap] = await Promise.all([
+        const [colSnap, ownedRaw] = await Promise.all([
           get(ref(db, `users/${uid}/collections/${collectionId}`)),
-          get(ref(db, `users/${uid}/ownedItems`)),
+          fetchUserOwnedRefs(uid),
         ]);
 
         if (!alive) return;
@@ -39,17 +44,15 @@ export default function AddFromMyPhotocardsPage() {
           return;
         }
 
-        const ownedRaw = ownedSnap.exists() ? ownedSnap.val() : {};
         const ownedRefs = Object.keys(ownedRaw || {})
           .filter((k) => !k.startsWith("_"))
           .map((k) => ({ itemId: k, ...ownedRaw[k] }))
           .filter((item) => String(item.collectionId || "") !== String(collectionId));
-        const ownedSourceSnaps = await Promise.all(
-          ownedRefs.map((entry) => get(ref(db, `items/${entry.itemId}`)))
-        );
+        const ownedIds = ownedRefs.map((entry) => String(entry.itemId || ""));
+        const byId = await fetchItemSummariesByIds(ownedIds);
         const ownedList = ownedRefs
-          .map((entry, index) => {
-            const source = ownedSourceSnaps[index]?.exists() ? ownedSourceSnaps[index].val() : null;
+          .map((entry) => {
+            const source = byId.get(String(entry.itemId || ""));
             if (!source) return null;
             return {
               id: entry.itemId,
@@ -115,6 +118,13 @@ export default function AddFromMyPhotocardsPage() {
       );
       await update(ref(db), updates);
 
+      appendCachedCollectionItem(uid, {
+        ...target,
+        id: sourceItemId,
+        sourceItemId,
+        collectionId,
+        updatedAt: Date.now(),
+      });
       setItems((prev) => prev.filter((item) => item.id !== itemId));
     } catch (err) {
       setError(err?.message || "Could not add photocard to this collection.");

@@ -23,6 +23,8 @@ import { computeAverageHashFromBlob } from "../lib/imageHash";
 import { DEFAULT_POB_STORES, formatPobStoreName } from "../lib/pobStore";
 import { appendCachedCollectionItem } from "../lib/userDataCache";
 import { buildOwnershipAssignmentUpdates } from "../lib/ownership";
+import { buildItemSummaryPayload } from "../lib/itemSummary";
+import { buildItemHashPayload } from "../lib/itemHash";
 import StorageImage from "../components/StorageImage";
 import Nav from "../components/Nav";
 const UNIT_MEMBER_NAME = "Unit";
@@ -702,6 +704,8 @@ export default function SubmitPage() {
 
       // Always publish to shared library so other users can find/add the card.
       updates[`items/${itemId}`] = base;
+      updates[`itemSummaries/${itemId}`] = buildItemSummaryPayload(base, itemId);
+      updates[`itemHashes/${itemId}`] = buildItemHashPayload(base, itemId);
       if (resolvedAlbum && group.trim()) {
         const groupKey = matchedCatalogGroupKey || toCatalogKey(group.trim());
         const albumKey = toCatalogKey(resolvedAlbum);

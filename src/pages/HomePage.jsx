@@ -1,7 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { ref, onValue, get } from "firebase/database";
+import { ref, get } from "firebase/database";
 import { auth, db } from "../../firebase-config";
+import {
+  fetchItemSummariesByIds,
+  fetchUserCollections,
+  fetchUserOwnedRefs,
+} from "../lib/userDataCache";
 import Nav from "../components/Nav";
 
 function countByMember(items) {
@@ -33,71 +38,45 @@ export default function HomePage() {
   const [collections, setCollections] = useState([]);
   const [items, setItems] = useState([]);
   const [username, setUsername] = useState("");
-  const itemMetaCacheRef = useRef(new Map());
 
   useEffect(() => {
+    let alive = true;
     const uid = auth.currentUser?.uid;
     if (!uid) {
       return;
     }
 
-    const unsubs = [];
+    (async () => {
+      const [collectionList, ownedVal, usernameSnap] = await Promise.all([
+        fetchUserCollections(uid),
+        fetchUserOwnedRefs(uid),
+        get(ref(db, `users/${uid}/username`)),
+      ]);
+      if (!alive) return;
 
-    const colRef = ref(db, `users/${uid}/collections`);
-    unsubs.push(
-      onValue(colRef, (snap) => {
-        const val = snap.val() || {};
-        const next = Object.keys(val)
-          .filter((k) => !k.startsWith("_"))
-          .map((k) => ({ id: k, ...val[k] }))
-          .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-        setCollections(next);
-      }),
-    );
+      setCollections(collectionList);
+      if (usernameSnap.exists()) setUsername(String(usernameSnap.val() || ""));
 
-    const itemRef = ref(db, `users/${uid}/ownedItems`);
-    unsubs.push(
-      onValue(itemRef, (snap) => {
-        const val = snap.val() || {};
-        const ids = Object.keys(val).filter((k) => !k.startsWith("_"));
-        const ownedEntries = ids.map((id) => ({ id, ...val[id] }));
+      const ids = Object.keys(ownedVal || {}).filter((k) => !k.startsWith("_"));
+      const ownedEntries = ids.map((id) => ({ id, ...ownedVal[id] }));
+      const mergedMeta = await fetchItemSummariesByIds(ids);
 
-        (async () => {
-          const missingIds = ids.filter((id) => !itemMetaCacheRef.current.has(id));
-          if (missingIds.length > 0) {
-            const snaps = await Promise.all(
-              missingIds.map((id) => get(ref(db, `items/${id}`)))
-            );
-            missingIds.forEach((id, index) => {
-              const itemVal = snaps[index]?.exists() ? snaps[index].val() || {} : {};
-              itemMetaCacheRef.current.set(id, {
-                member: String(itemVal.member || ""),
-                group: String(itemVal.group || ""),
-              });
-            });
-          }
-
-          const next = ownedEntries.map((entry) => {
-            const meta = itemMetaCacheRef.current.get(entry.id) || {};
-            return {
-              ...entry,
-              member: meta.member || "",
-              group: meta.group || "",
-            };
-          });
-          setItems(next);
-        })();
-      }),
-    );
-
-    get(ref(db, `users/${uid}/username`)).then((snap) => {
-      if (snap.exists()) setUsername(String(snap.val() || ""));
+      if (!alive) return;
+      const next = ownedEntries.map((entry) => {
+        const meta = mergedMeta.get(entry.id) || {};
+        return {
+          ...entry,
+          member: meta.member || "",
+          group: meta.group || "",
+        };
+      });
+      setItems(next);
+    })().catch(() => {
+      // Keep homepage resilient; stats can still render from whatever data exists.
     });
 
     return () => {
-      for (const unsub of unsubs) {
-        if (typeof unsub === "function") unsub();
-      }
+      alive = false;
     };
   }, []);
 

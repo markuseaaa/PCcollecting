@@ -19,6 +19,7 @@ import {
 } from "../lib/imageHash";
 import { cropImageFileToBlob } from "../lib/imageCrop";
 import { buildOwnershipAssignmentUpdates } from "../lib/ownership";
+import { fetchItemSummariesByIds } from "../lib/userDataCache";
 import Nav from "../components/Nav";
 import StorageImage from "../components/StorageImage";
 
@@ -102,29 +103,45 @@ export default function ScanPage() {
     };
   }, []);
 
-  async function fetchRecentBatch(beforeCreatedAt = null) {
+  async function fetchRecentHashBatch(beforeCreatedAt = null) {
     const constraints = [orderByChild("createdAt")];
     if (Number.isFinite(beforeCreatedAt)) {
       constraints.push(endAt(beforeCreatedAt));
     }
     constraints.push(limitToLast(SCAN_BATCH_SIZE));
-    const itemSnap = await get(dbQuery(dbRef(db, "items"), ...constraints));
-    const itemVal = itemSnap.exists() ? itemSnap.val() : {};
-    return Object.keys(itemVal || {})
+    const hashSnap = await get(dbQuery(dbRef(db, "itemHashes"), ...constraints));
+    const hashVal = hashSnap.exists() ? hashSnap.val() : {};
+    return Object.keys(hashVal || {})
       .filter((k) => !k.startsWith("_"))
-      .map((k) => ({ id: k, ...itemVal[k] }))
+      .map((k) => ({ id: k, ...hashVal[k] }))
       .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
   }
 
-  async function fetchItemsForGroup(groupName) {
+  async function fetchHashesForGroup(groupName) {
     const name = String(groupName || "").trim();
     if (!name) return [];
-    const snap = await get(dbQuery(dbRef(db, "items"), orderByChild("group"), equalTo(name)));
+    const snap = await get(dbQuery(dbRef(db, "itemHashes"), orderByChild("group"), equalTo(name)));
     const val = snap.exists() ? snap.val() : {};
     return Object.keys(val || {})
       .filter((k) => !k.startsWith("_"))
       .map((k) => ({ id: k, ...val[k] }))
       .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+  }
+
+  async function hydrateMatches(ranked) {
+    const top = ranked.slice(0, 3);
+    if (!top.length) return [];
+    const ids = top.map((item) => String(item.id || "")).filter(Boolean);
+    const byId = await fetchItemSummariesByIds(ids);
+
+    return top.map((entry) => {
+      const meta = byId.get(String(entry.id || "")) || {};
+      return {
+        ...meta,
+        id: String(entry.id || ""),
+        similarity: entry.similarity,
+      };
+    });
   }
 
   useEffect(() => {
@@ -280,7 +297,7 @@ export default function ScanPage() {
       };
 
       if (groupFilter) {
-        const allGroupItems = await fetchItemsForGroup(groupFilter);
+        const allGroupItems = await fetchHashesForGroup(groupFilter);
         for (let start = 0; start < allGroupItems.length && batches < MAX_SCAN_BATCHES; start += SCAN_BATCH_SIZE) {
           const batch = allGroupItems.slice(start, start + SCAN_BATCH_SIZE);
           const hadBatch = processBatch(batch);
@@ -290,7 +307,7 @@ export default function ScanPage() {
         }
       } else {
         while (batches < MAX_SCAN_BATCHES) {
-          const batch = await fetchRecentBatch(cursor);
+          const batch = await fetchRecentHashBatch(cursor);
           if (!batch.length) break;
           processBatch(batch);
           if (foundGoodMatch && ranked.length >= 3) break;
@@ -307,7 +324,8 @@ export default function ScanPage() {
         }
       }
 
-      setMatches(ranked.slice(0, 3));
+      const hydrated = await hydrateMatches(ranked);
+      setMatches(hydrated);
     } catch (err) {
       setError(err?.message || "Could not scan this image.");
       setMatches([]);
