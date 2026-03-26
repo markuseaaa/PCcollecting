@@ -83,40 +83,39 @@ export default function CollectionPage() {
           return;
         }
 
-        const [ownedSnap, itemIdsSnap] = await Promise.all([
-          get(ref(db, `users/${ownerUid}/ownedItems`)),
-          get(ref(db, `users/${ownerUid}/collections/${collectionId}/itemIds`)),
-        ]);
-        const ownedVal = ownedSnap.exists() ? ownedSnap.val() : {};
-        const ownedRefs = Object.keys(ownedVal || {})
-          .filter((k) => !k.startsWith("_"))
-          .map((k) => ({ itemId: k, ...ownedVal[k] }));
-        const ownedById = new Map(
-          ownedRefs.map((entry) => [String(entry.itemId || ""), entry])
-        );
-
+        const itemIdsSnap = await get(ref(db, `users/${ownerUid}/collections/${collectionId}/itemIds`));
         const itemIdsVal = itemIdsSnap.exists() ? itemIdsSnap.val() : {};
         const itemIds = Object.keys(itemIdsVal || {}).filter((k) => !k.startsWith("_"));
-        const sourceIds = Array.from(
-          new Set([...itemIds, ...ownedRefs.map((entry) => String(entry.itemId || ""))].filter(Boolean))
-        );
+        const sourceIds = Array.from(new Set(itemIds.filter(Boolean)));
         const sourceMap = await fetchItemSummariesByIds(sourceIds);
 
-        const allOwnedItems = ownedRefs
-          .map((entry) => {
-            const itemId = String(entry.itemId || "");
-            const source = sourceMap.get(itemId);
-            if (!source) return null;
-            return {
-              id: itemId,
-              sourceItemId: itemId,
-              collectionId: String(entry.collectionId || ""),
-              createdAt: entry.createdAt || source.createdAt || 0,
-              updatedAt: entry.updatedAt || source.updatedAt || source.createdAt || 0,
-              ...source,
-            };
-          })
-          .filter(Boolean);
+        let ownedById = new Map();
+        let allOwnedItems = [];
+        if (isOwner) {
+          const ownedSnap = await get(ref(db, `users/${ownerUid}/ownedItems`));
+          const ownedVal = ownedSnap.exists() ? ownedSnap.val() : {};
+          const ownedRefs = Object.keys(ownedVal || {})
+            .filter((k) => !k.startsWith("_"))
+            .map((k) => ({ itemId: k, ...ownedVal[k] }));
+          ownedById = new Map(
+            ownedRefs.map((entry) => [String(entry.itemId || ""), entry])
+          );
+          allOwnedItems = ownedRefs
+            .map((entry) => {
+              const itemId = String(entry.itemId || "");
+              const source = sourceMap.get(itemId);
+              if (!source) return null;
+              return {
+                id: itemId,
+                sourceItemId: itemId,
+                collectionId: String(entry.collectionId || ""),
+                createdAt: entry.createdAt || source.createdAt || 0,
+                updatedAt: entry.updatedAt || source.updatedAt || source.createdAt || 0,
+                ...source,
+              };
+            })
+            .filter(Boolean);
+        }
 
         const nextItemsFromRefs = itemIds
           .map((itemId) => {
@@ -135,7 +134,7 @@ export default function CollectionPage() {
           .filter(Boolean)
           .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
 
-        const allItems = allOwnedItems;
+        const allItems = isOwner ? allOwnedItems : nextItemsFromRefs;
         const nextItems = nextItemsFromRefs;
 
         if (!alive) return;

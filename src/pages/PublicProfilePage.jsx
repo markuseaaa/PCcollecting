@@ -32,22 +32,29 @@ export default function PublicProfilePage() {
         return;
       }
       try {
-        const [userSnap, collectionSnap] = await Promise.all([
-          get(ref(db, `users/${uid}`)),
+        const [usernameSnap, bioSnap, photoSnap, friendsSnap, collectionSnap] = await Promise.all([
+          get(ref(db, `users/${uid}/username`)),
+          get(ref(db, `users/${uid}/bio`)),
+          get(ref(db, `users/${uid}/profilePhotoUrl`)),
+          get(ref(db, `users/${uid}/friends`)),
           get(ref(db, `users/${uid}/collections`)),
         ]);
         if (!alive) return;
-        if (!userSnap.exists()) {
+        if (!usernameSnap.exists()) {
           setError("Profile not found.");
           setLoading(false);
           return;
         }
-        const userVal = userSnap.val() || {};
-        setUsername(String(userVal.username || "collector"));
-        setBio(String(userVal.bio || ""));
-        setPhotoUrl(String(userVal.profilePhotoUrl || ""));
+
+        const usernameVal = usernameSnap.exists() ? usernameSnap.val() : "";
+        const bioVal = bioSnap.exists() ? bioSnap.val() : "";
+        const photoVal = photoSnap.exists() ? photoSnap.val() : "";
+        const friendsVal = friendsSnap.exists() ? friendsSnap.val() : {};
+        setUsername(String(usernameVal || "collector"));
+        setBio(String(bioVal || ""));
+        setPhotoUrl(String(photoVal || ""));
         setFriendCount(
-          Object.keys(userVal.friends || {}).filter((k) => !k.startsWith("_")).length
+          Object.keys(friendsVal || {}).filter((k) => !k.startsWith("_")).length
         );
 
         const colVal = collectionSnap.exists() ? collectionSnap.val() : {};

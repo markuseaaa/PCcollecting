@@ -1,15 +1,96 @@
 {
   "rules": {
-    ".read": "auth != null",
-    ".write": "auth != null",
+    ".read": false,
+    ".write": false,
     "items": {
-      ".indexOn": ["createdAt", "group"]
+      ".read": "auth != null",
+      ".indexOn": ["createdAt", "group"],
+      "$itemId": {
+        ".write": "auth != null && (auth.token.admin === true || (!data.exists() && newData.child('createdBy').val() === auth.uid))"
+      }
     },
     "itemSummaries": {
-      ".indexOn": ["createdAt", "group"]
+      ".read": "auth != null",
+      ".indexOn": ["createdAt", "group"],
+      "$itemId": {
+        ".write": "auth != null && (auth.token.admin === true || !data.exists())"
+      }
     },
     "itemHashes": {
-      ".indexOn": ["createdAt", "group"]
+      ".read": "auth != null",
+      ".indexOn": ["createdAt", "group"],
+      "$itemId": {
+        ".write": "auth != null && (auth.token.admin === true || !data.exists())"
+      }
+    },
+    "meta": {
+      ".read": "auth != null",
+      ".write": "auth != null && auth.token.admin === true"
+    },
+    "tmp": {
+      ".read": false,
+      ".write": "auth != null"
+    },
+    "userIndex": {
+      "usernames": {
+        "$username": {
+          ".read": "auth != null",
+          ".write": "auth != null && (auth.token.admin === true || (newData.val() === auth.uid && (!data.exists() || data.val() === auth.uid)) || (data.val() === auth.uid && !newData.exists()))"
+        }
+      }
+    },
+    "users": {
+      "$uid": {
+        ".read": "auth != null && (auth.token.admin === true || auth.uid === $uid)",
+        ".write": "auth != null && (auth.token.admin === true || auth.uid === $uid)",
+        "username": {
+          ".read": "auth != null"
+        },
+        "bio": {
+          ".read": "auth != null"
+        },
+        "profilePhotoUrl": {
+          ".read": "auth != null"
+        },
+        "friends": {
+          ".read": "auth != null",
+          "$friendUid": {
+            ".write": "auth != null && (auth.token.admin === true || auth.uid === $uid || auth.uid === $friendUid)"
+          }
+        },
+        "friendRequestsIncoming": {
+          ".read": "auth != null && (auth.token.admin === true || auth.uid === $uid)",
+          "$fromUid": {
+            ".write": "auth != null && (auth.token.admin === true || auth.uid === $uid || auth.uid === $fromUid)"
+          }
+        },
+        "friendRequestsOutgoing": {
+          ".read": "auth != null && (auth.token.admin === true || auth.uid === $uid)",
+          "$toUid": {
+            ".write": "auth != null && (auth.token.admin === true || auth.uid === $uid || auth.uid === $toUid)"
+          }
+        },
+        "collections": {
+          ".read": "auth != null",
+          "$collectionId": {
+            ".write": "auth != null && (auth.token.admin === true || auth.uid === $uid)",
+            "itemIds": {
+              ".read": "auth != null",
+              ".write": "auth != null && (auth.token.admin === true || auth.uid === $uid)"
+            }
+          }
+        },
+        "ownedItems": {
+          ".read": "auth != null && (auth.token.admin === true || auth.uid === $uid)",
+          ".write": "auth != null && (auth.token.admin === true || auth.uid === $uid)"
+        },
+        "email": {
+          ".read": "auth != null && (auth.token.admin === true || auth.uid === $uid)"
+        },
+        "settings": {
+          ".read": "auth != null && (auth.token.admin === true || auth.uid === $uid)"
+        }
+      }
     }
   }
 }
